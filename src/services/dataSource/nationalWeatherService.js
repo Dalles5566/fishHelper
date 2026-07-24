@@ -158,21 +158,31 @@ export async function getNationalWeatherService(
     );
     const periods = hourlyResp?.properties?.periods || [];
 
-    // gridData:阵风/雷暴/浪(时间区间制,展开成整点映射;英制换算)
-    const grid = await safe('forecastGridData', () => nwsFetch(p.forecastGridData), errors);
-    const gp = grid?.properties || {};
-    const gustMap = expandSeries(gp.windGust, (v) => (isEnglish ? round(v * KMH_TO_MPH) : round(v))); // km/h
-    const thunderMap = expandSeries(gp.probabilityOfThunder);
-    const waveMap = expandSeries(gp.waveHeight, (v) => (isEnglish ? round(v * M_TO_FT, 2) : round(v, 2))); // m
-    const wavePeriodMap = expandSeries(gp.wavePeriod);
+    // gridData:阵风/雷暴/浪。这些字段是"时间区间制"(一个值覆盖若干小时),
+    // 用 expandSeries 展开成"整点 → 值"映射;英制时把 km/h→mph、m→ft。
+    // 单独 try/catch:gridData 结构异常不应影响已经拿到的逐小时预报。
+    let gustMap = new Map();
+    let thunderMap = new Map();
+    let waveMap = new Map();
+    let wavePeriodMap = new Map();
+    try {
+      const grid = await safe('forecastGridData', () => nwsFetch(p.forecastGridData), errors);
+      const gp = grid?.properties || {};
+      gustMap = expandSeries(gp.windGust, (v) => (isEnglish ? round(v * KMH_TO_MPH) : round(v))); // 源 km/h
+      thunderMap = expandSeries(gp.probabilityOfThunder); // %
+      waveMap = expandSeries(gp.waveHeight, (v) => (isEnglish ? round(v * M_TO_FT, 2) : round(v, 2))); // 源 m
+      wavePeriodMap = expandSeries(gp.wavePeriod); // s
+    } catch (err) {
+      errors.push({ step: 'gridData-parse', message: err.message });
+    }
 
-    // 把一条逐小时 period 映射成我们的结构(合并 gridData)
+    // 把一条逐小时 period(NWS 原始)映射成我们的扁平结构,并合并 gridData 的阵风/雷暴/浪
     const buildEntry = (it) => {
       const time = toUtc(it.startTime);
       return {
         time,
         temperature: it.temperature ?? null,
-        windSpeed: parseWindSpeed(it.windSpeed),
+        windSpeed: parseWindSpeed(it.windSpeed), // "7 mph"/"11 km/h" → 数字
         windDirection: it.windDirection || null, // 方位词 "S"
         windGust: gustMap.get(time) ?? null,
         precipitationProbability: it.probabilityOfPrecipitation?.value ?? null,
@@ -183,41 +193,51 @@ export async function getNationalWeatherService(
       };
     };
 
-    if (mode === 'current') {
-      // 取"此刻"所在的那一小时(找不到用第一条)
-      const now = Date.now();
-      const cur =
-        periods.find((it) => {
-          const s = Date.parse(it.startTime);
-          const e = Date.parse(it.endTime);
-          return now >= s && now < e;
-        }) || periods[0];
-      result.current = cur ? buildEntry(cur) : null;
-    } else {
-      // 预测模式:未来 hours 条
-      result.prediction = { hourly: periods.slice(0, hours).map(buildEntry) };
+    // 按模式填充 prediction 或 current(解析/映射单独 try/catch)
+    try {
+      if (mode === 'current') {
+        // 取"此刻"所在的那一小时(找不到就用第一条)
+        const now = Date.now();
+        const cur =
+          periods.find((it) => {
+            const s = Date.parse(it.startTime);
+            const e = Date.parse(it.endTime);
+            return now >= s && now < e;
+          }) || periods[0];
+        result.current = cur ? buildEntry(cur) : null;
+      } else {
+        // 预测模式:未来 hours 条逐小时
+        result.prediction = { hourly: periods.slice(0, hours).map(buildEntry) };
+      }
+    } catch (err) {
+      errors.push({ step: 'build-hourly', message: err.message });
     }
 
-    // 活跃警报
+    // 活跃警报(顶层,与模式无关);拉取 + 映射各自 try/catch
     const alertsResp = await safe(
       'alerts',
       () => nwsFetch(`https://api.weather.gov/alerts/active?point=${rlat},${rlng}`),
       errors
     );
-    result.alerts = (alertsResp?.features || []).map((f) => {
-      const a = f.properties;
-      return {
-        event: a.event,
-        severity: a.severity,
-        urgency: a.urgency,
-        messageType: a.messageType,
-        headline: a.headline,
-        effective: toUtc(a.effective),
-        expires: toUtc(a.expires),
-        isMarine: MARINE_EVENT_RE.test(a.event || ''),
-        zones: (a.affectedZones || []).map((z) => z.split('/').pop()),
-      };
-    });
+    try {
+      result.alerts = (alertsResp?.features || []).map((f) => {
+        const a = f.properties;
+        return {
+          event: a.event,
+          severity: a.severity,
+          urgency: a.urgency,
+          messageType: a.messageType,
+          headline: a.headline,
+          effective: toUtc(a.effective),
+          expires: toUtc(a.expires),
+          // 海/陆用事件名启发式判断(NWS 的 category 不区分海陆)
+          isMarine: MARINE_EVENT_RE.test(a.event || ''),
+          zones: (a.affectedZones || []).map((z) => z.split('/').pop()),
+        };
+      });
+    } catch (err) {
+      errors.push({ step: 'alerts-parse', message: err.message });
+    }
 
     return result;
   } catch (err) {

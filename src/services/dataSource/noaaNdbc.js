@@ -78,41 +78,51 @@ export async function getNoaaNdbc(lat, lng, { buoyStation, mode = 'current', uni
       return { available: false, source, mode, reason: err.message, errors };
     }
 
-    // 解析所有数据行(去掉 # 注释)
-    const rows = text
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith('#'))
-      .map((l) => {
-        const parts = l.split(/\s+/);
-        const row = {};
-        COLS.forEach((c, i) => (row[c] = parts[i]));
-        return row;
-      });
-    if (rows.length === 0) {
-      errors.push({ step: 'parse', message: '无观测数据行' });
-      return { available: false, source, mode, reason: '无观测数据', errors };
+    // ---- 解析 realtime2 列式文本(单独 try/catch:解析异常不整体崩)----
+    let waveHeightM, wavePeriodS, waveDir, seaTempC, visNmi, observedAt;
+    try {
+      // 每行按空白切成列;去掉 # 注释头。首行=最近观测,越往下越早。
+      const rows = text
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith('#'))
+        .map((l) => {
+          const parts = l.split(/\s+/);
+          const row = {};
+          COLS.forEach((c, i) => (row[c] = parts[i]));
+          return row;
+        });
+      if (rows.length === 0) {
+        errors.push({ step: 'parse', message: '无观测数据行' });
+        return { available: false, source, mode, reason: '无观测数据', errors };
+      }
+
+      // 某字段取"最近的有效值":从最新行往下扫,遇到第一个非 MM 的就用
+      // (浮标某字段最新一行常缺测 MM,回退到稍早的有效值)
+      const latest = (col) => {
+        for (const row of rows) {
+          const v = num(row[col]);
+          if (v != null) return v;
+        }
+        return null;
+      };
+
+      // 观测时间取最新行(realtime2 的时间列是 GMT)→ ISO8601 UTC
+      const top = rows[0];
+      observedAt = `${top.YY}-${top.MM}-${top.DD}T${top.hh}:${top.mm}:00Z`;
+
+      // 原始都是公制(realtime2 恒公制)
+      waveHeightM = latest('WVHT'); // 有效浪高 m
+      wavePeriodS = latest('DPD') ?? latest('APD'); // 主周期缺则退回平均周期 s
+      waveDir = latest('MWD'); // 浪向 deg
+      seaTempC = latest('WTMP'); // 海表温度 degC
+      visNmi = latest('VIS'); // 能见度 nmi
+    } catch (err) {
+      errors.push({ step: 'parse', message: err.message });
+      return { available: false, source, mode, reason: `解析失败: ${err.message}`, errors };
     }
 
-    // 每字段取"最近的有效值"(从最新行往下扫,第一个非 MM)
-    const latest = (col) => {
-      for (const row of rows) {
-        const v = num(row[col]);
-        if (v != null) return v;
-      }
-      return null;
-    };
-
-    const top = rows[0];
-    const observedAt = `${top.YY}-${top.MM}-${top.DD}T${top.hh}:${top.mm}:00Z`;
-
-    // 原始公制值
-    const waveHeightM = latest('WVHT');
-    const wavePeriodS = latest('DPD') ?? latest('APD'); // 主周期缺则退回平均周期
-    const waveDir = latest('MWD');
-    const seaTempC = latest('WTMP');
-    const visNmi = latest('VIS');
-
+    // ---- 组装返回:扁平值,英制则换算(m→ft、degC→degF)----
     return {
       available: true,
       source,
@@ -120,13 +130,12 @@ export async function getNoaaNdbc(lat, lng, { buoyStation, mode = 'current', uni
       station: { id: buoyStation.station.id, name: buoyStation.station.name, distanceKm: buoyStation.distanceKm },
       observedAt,
       units: UNIT_MAP[units],
-      // 扁平值;英制则换算
       waveHeight: toEnglish ? mToFt(waveHeightM) : waveHeightM,
-      swellHeight: null, // realtime2 无涌浪列(.spec 才有)
-      wavePeriod: wavePeriodS,
-      waveDirection: waveDir,
+      swellHeight: null, // realtime2 无涌浪列(需 .spec 文件)
+      wavePeriod: wavePeriodS, // 周期不随单位制变(秒)
+      waveDirection: waveDir, // 方向不随单位制变(度)
       seaSurfaceTemp: toEnglish ? cToF(seaTempC) : seaTempC,
-      visibility: visNmi,
+      visibility: visNmi, // 海里(两种单位制都用 nmi)
       errors,
     };
   } catch (err) {
