@@ -148,7 +148,7 @@
 - 数据库:**Postgres**(pg)
 - 数据源:**NOAA CO-OPS / NDBC / NWS / USGS / NCEI DEM + suncalc**(全免费,适用美国)
 - 架构:**挑选+重组(curation)**,两个天气 tool 按问题路由:
-  `queryCurrentWeather`→`getCurrentConditions`(现在)、`predictWeather`→`getPredictConditions`(未来)
+  `getCurrentWeather`→`getCurrentConditions`(现在)、`getPredictWeather`→`getPredictConditions`(未来)
 - 时间:dataSource 层全 UTC,spotConditions 出口全部转钓点本地时(toLocal);顶层不单列 timezone/unitSystem
 - name/note:天气对象顶部带钓点名与备注(来自 DB,上层查库后传入)
 - 回复方式:**流式 replyStream**

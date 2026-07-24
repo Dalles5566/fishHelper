@@ -154,13 +154,15 @@ fishHelper/
   - system prompt 设定角色(钓鱼助手)
   - 循环:OpenAI(带 tools)→ 需要调工具则执行并回填 → 再问 →
     直到给出最终文本(最大轮数上限防死循环)
-- `tools/`:每个工具导出 `{ name, description, parameters, execute(args) }`
-  - `queryCoords`:查数据库坐标(全部或按名)
-  - `addCoord`:新增坐标到数据库
-  - `queryCurrentWeather`:调 `getCurrentConditions(lat,lng,{name,note,unitSystem})` —— "现在"
-  - `predictWeather`:调 `getPredictConditions(lat,lng,{name,note,date,unitSystem})` —— "未来/等下"
-  > 典型链路:用户问"xxx 今天怎样" → agent 先 `queryCoords('xxx')` 拿到
+- `tools/`:每个工具导出 `{ name, description, parameters, execute(args) }`(**name === 文件名**);
+  `registerTools.js` 汇总为 `tools` / `toolSchemas` / `executeTool(name,args)`。
+  - `getCoordinateByName`:查数据库坐标(传 name 按名查、否则列全部)
+  - `addCoordinate`:新增/更新坐标到数据库(按名 upsert)
+  - `getCurrentWeather`:调 `getCurrentConditions(lat,lng,{name,note,unitSystem})` —— "现在"
+  - `getPredictWeather`:调 `getPredictConditions(lat,lng,{name,note,date,unitSystem})` —— "未来/等下"
+  > 典型链路:用户问"xxx 今天怎样" → agent 先 `getCoordinateByName('xxx')` 拿到
   > `{name,latitude,longitude,note}` → 再把 name/note/坐标传给天气 tool,输出顶部即带 name/note。
+  > **tool 层不解析站点**:只收 lat/lng/name/note 转调 spotConditions。
 
 ### services 层(一源一 object → 合成 SpotConditions)
 每个 service 导出 `getXxx(lat, lng)`,内部**请求 → 映射成自己的 object**;
@@ -181,7 +183,13 @@ fishHelper/
   两个入口都先 `resolveStations()` 统一解析三站(潮汐/潮流/浮标)再复用;`settle()` 容错 → `errors[]`;
   时间一律用 `toLocal()` 转钓点本地时(见「时间统一规则」)。
 
-  **入口 A `getCurrentConditions(lat,lng,{name,note,unitSystem})` → tool `queryCurrentWeather`**
+  **站点解析的分层(重要)**:`getCurrentConditions` 和 `getPredictConditions` **都在开头先调
+  `resolveStations(lat,lng)`**(并发跑 `nearestCoopsTideStation` / `nearestCoopsCurrentStation` /
+  `nearestNdbcStation`),拿到 `{tideStation,currentStation,buoyStation}` 后再传给需要站号的数据源
+  (coops 用潮汐/潮流站、ndbc 用浮标站)。→ **站点只在编排层解析一次并复用**;tool 层和 dataSource 层都不找站
+  (dataSource 只负责"用给定站号拉数据 + 映射")。
+
+  **入口 A `getCurrentConditions(lat,lng,{name,note,unitSystem})` → tool `getCurrentWeather`**
   ```js
   {
     name, note,                    // 来自数据库(裸坐标查询时为 null)
@@ -200,7 +208,7 @@ fishHelper/
   }
   ```
 
-  **入口 B `getPredictConditions(lat,lng,{name,note,date,unitSystem})` → tool `predictWeather`**
+  **入口 B `getPredictConditions(lat,lng,{name,note,date,unitSystem})` → tool `getPredictWeather`**
   ```js
   {
     name, note, latitude, longitude, date, currentTime,
