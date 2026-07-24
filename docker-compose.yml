@@ -1,0 +1,43 @@
+# fishHelper 独立部署:app 容器 + 专属 postgres 容器
+# 一条命令启动:  docker compose up -d --build
+#
+# 两个容器都在本 compose 自建的独立网络里,与服务器上其他项目隔离:
+#   - db 容器:专属数据卷 fishhelper_pgdata,不和别的项目共享数据
+#   - app 通过内部网络用服务名 "db" 连数据库(容器内端口 5432),
+#     不依赖宿主机端口,因此不会和已占用的宿主机 5432 冲突
+#   - 宿主机 5433 -> db 5432 仅为方便你从宿主机 psql 调试(可删)
+
+services:
+  db:
+    image: postgres:16
+    container_name: fishhelper-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fishhelper}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fishhelper}
+      POSTGRES_DB: ${POSTGRES_DB:-fishhelper}
+    volumes:
+      - fishhelper_pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432" # 宿主机 5433,避开已被占用的 5432;仅调试用,可注释掉
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fishhelper} -d ${POSTGRES_DB:-fishhelper}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    container_name: fishhelper-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env # WeCom / OpenAI / NWS 等凭据
+    environment:
+      # 覆盖 .env 里的 DATABASE_URL:容器内走内部网络连 db 服务(不用宿主机端口)
+      DATABASE_URL: postgres://${POSTGRES_USER:-fishhelper}:${POSTGRES_PASSWORD:-fishhelper}@db:5432/${POSTGRES_DB:-fishhelper}
+
+volumes:
+  fishhelper_pgdata: # 专属数据卷,独立于其他项目
