@@ -49,17 +49,30 @@
 
 ---
 
-## ⬜ 任务 4:天气服务层
-- [ ] `src/services/weather.js`
-  - `getMarine(lat, lng)` 调 Stormglass,解析风向/风速/潮汐
-  - 额度耗尽 / 无数据的兜底
+## 🔨 任务 4:服务层(6 源 → SpotConditions)
+数据源已用真实坐标(41.48075,-71.33550)逐个请求验证(字段映射规则见 design.md)。
+每个 service:请求 → 映射成自己的 object,失败/无数据返回 `{available:false, reason}`。
+
+**命名一致:文件名 / 函数名 / 对象名三者同名(网站全名)。**
+**目录:6 个数据源放 `services/dataSource/`;`stations.js`、`spotConditions.js` 放 `services/` 顶层。**
+**(样例文件 `sampleConditions.js` 已删除 —— 字段契约在 design.md。)**
+
+- [ ] `src/services/stations.js`(haversine + 站点列表缓存,就近找站;coops/ndbc/usgs 共用)
+- [ ] `src/services/dataSource/nationalWeatherService.js`：`getNationalWeatherService()` → **`NationalWeatherServiceObject`**
+- [ ] `src/services/dataSource/noaaCoops.js`：`getNoaaCoops()` → **`NoaaCoopsObject`**
+- [ ] `src/services/dataSource/noaaNdbc.js`：`getNoaaNdbc()` → **`NoaaNdbcObject`**
+- [ ] `src/services/dataSource/astronomy.js`：`getAstronomy()` → **`AstronomyObject`**(suncalc)
+- [ ] `src/services/dataSource/usgsWaterData.js`：`getUsgsWaterData()` → **`UsgsWaterDataObject`**
+- [ ] `src/services/dataSource/noaaBathymetry.js`：`getNoaaBathymetry()` → **`NoaaBathymetryObject`**
+- [ ] `src/services/spotConditions.js`：`getSpotConditions()` → **`SpotConditions`**(并发合成上面 6 个)
+- [ ] `package.json` 加 `suncalc` 依赖
 
 ---
 
 ## ⬜ 任务 5:工具层
 - [ ] `src/agent/tools/queryCoords.js`
 - [ ] `src/agent/tools/addCoord.js`
-- [ ] `src/agent/tools/queryWeather.js`
+- [ ] `src/agent/tools/queryWeather.js`(调 `getSpotConditions(lat,lng)`)
 - [ ] `src/agent/tools/index.js`(注册表)
 
 ---
@@ -92,7 +105,8 @@
 - 凭据:**botId + secret**(智能机器人),非自建应用 agentId/corpId
 - LLM:**OpenAI**(function calling),默认 gpt-4o-mini(可配)
 - 数据库:**Postgres**(pg)
-- 天气潮汐:**Stormglass**
+- 数据源:**NOAA CO-OPS / NDBC / NWS / USGS / NCEI DEM + suncalc**(全免费,适用美国)
+- 架构:**一源一 object → 合成 `SpotConditions`**(单 tool `queryWeather` 调 `getSpotConditions`)
 - 回复方式:**流式 replyStream**
 
 ## 确认记录
