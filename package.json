@@ -15,7 +15,8 @@
   "dependencies": {
     "@wecom/aibot-node-sdk": "^1.0.7",
     "openai": "^4.67.3",
-    "pg": "^8.13.0"
+    "pg": "^8.13.0",
+    "suncalc": "^2.0.1"
   },
   "license": "MIT"
 }

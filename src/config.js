@@ -49,8 +49,11 @@ export const config = {
     baseURL: process.env.OPENAI_BASE_URL || undefined,
   },
 
-  stormglass: {
-    apiKey: process.env.STORMGLASS_API_KEY || '',
+  // NWS(api.weather.gov)要求请求头带 User-Agent 标识应用与联系方式
+  nws: {
+    userAgent:
+      process.env.NWS_USER_AGENT ||
+      'fishHelper/0.1 (https://github.com/Dalles5566/fishHelper)',
   },
 
   db: {

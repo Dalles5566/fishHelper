@@ -170,8 +170,19 @@ fishHelper/
 | `spotConditions.js` | `getSpotConditions()` | `SpotConditions` |
 
 - `spotConditions.js`:`getSpotConditions(lat, lng) -> SpotConditions`
-  用 `Promise.allSettled` 并发调下面 6 个,合成:
+  **先统一解析站点(一次,复用)**,再把站点传给需要的 service:
   ```js
+  // ① 并行解析三个最近站(stations.js)
+  const [tideStation, currentStation, buoyStation] = await Promise.all([
+    nearestCoopsTideStation(lat, lng),
+    nearestCoopsCurrentStation(lat, lng),
+    nearestNdbcStation(lat, lng),
+  ]);
+  // ② Promise.allSettled 并发调 6 源(站点作为参数传入)
+  //    getNoaaCoops(lat, lng, { tideStation, currentStation })
+  //    getNoaaNdbc(lat, lng, { buoyStation })
+  //    getNationalWeatherService(lat, lng) 等
+  // ③ 合成:
   {
     latitude, longitude, fetchedAt, timezone,
     sources: {
@@ -184,22 +195,34 @@ fishHelper/
     }
   }
   ```
-- `noaaCoops.js`:就近找潮汐站 → 高低潮(predictions/hilo)+ 实时水位(water_level);
-  潮流(currents_predictions,仅 PCT 类站点有,否则 available:false)
-- `noaaNdbc.js`:就近找浮标 → 下 realtime2 文本 → 解析 WVHT/DPD/MWD/WTMP/VIS
+  > 站点解析放在编排层的原因:多个地方会用到同一批站,统一解析一次即可复用,
+  > dataSource 的 service 不再各自找站,只负责"用给定站号拉数据 + 映射"。
+- `noaaCoops.js`:`getNoaaCoops(lat,lng,{tideStation,currentStation})` —— 用传入的潮汐站拉
+  高低潮(predictions/hilo)+ 实时水位(water_level);潮流(currents_predictions,
+  仅 PCT 类站点有,否则 available:false)
+- `noaaNdbc.js`:`getNoaaNdbc(lat,lng,{buoyStation})` —— 用传入浮标 → 下 realtime2 文本 →
+  解析 WVHT/DPD/MWD/WTMP/VIS
 - `nationalWeatherService.js`:`points/{lat,lng}`(4 位小数)→ grid + forecastHourly;
-  阵风/雷暴来自 forecastGridData;警报 `/alerts/active`
-- `astronomy.js`:`suncalc` 本地算日/月(无网络)
-- `usgsWaterData.js`:就近找站 → iv 接口(00060 流量/00065 水位/00010 水温)
-- `noaaBathymetry.js`:NCEI DEM identify 直接按坐标 → 点水深
-- `stations.js`:haversine + 站点列表(带缓存),供 coops/ndbc/usgs 就近找站
+  阵风/雷暴来自 forecastGridData;警报 `/alerts/active`(点查,不用站)
+- `astronomy.js`:`suncalc` 本地算日/月(无网络,不用站)
+- `usgsWaterData.js`:bbox 查附近站 → 用 `nearest()` 挑最近 → iv 接口(00060/00065/00010)
+- `noaaBathymetry.js`:NCEI DEM identify 直接按坐标 → 点水深(不用站)
+- `stations.js`:haversine + 站点列表(带缓存);由 `spotConditions.js` 在编排层调用
 
 ### 字段映射规则(真实请求验证得出)
 - NWS `windSpeed:"7 mph"` → `{ value:7, unit:'mph' }`;`windDirection:"S"` → `{ cardinal:'S' }`
 - NDBC 缺测 `MM` → `null`;USGS 缺测 `-999999` → `null`
 - Bathymetry `value:"-7.17"`(负高程)→ 取绝对值 `depth:7.17 m`
-- CO-OPS 时间为站点本地时(lst_ldt),统一转 ISO8601
 - 数值字段统一 `{ value, unit }`;站点类子 object 带 `station:{id,name,distanceKm}`
+
+### 时间统一规则(方案 A:数据层全 UTC,展示时本地化)
+所有源的时间字段**统一为 UTC ISO8601("...Z")**,消除跨源歧义:
+- **CO-OPS**:请求用 `time_zone=gmt` → 直接得 UTC → `"...Z"`
+- **NDBC**:realtime2 本就是 GMT → 直接 `"...Z"`
+- **NWS**:返回带本地偏移(如 `-04:00`)→ `new Date(t).toISOString()` 转 UTC(去毫秒)
+- **展示本地化**:`SpotConditions` 顶层带 `timezone`(取自 NWS points 的 `timeZone`,
+  如 `America/New_York`),由 **agent 在回复时**把 UTC 换算成钓点本地时间给用户看。
+- 原则:**内部存/传 UTC,展示才本地化**。
 
 ## 5. 数据模型
 

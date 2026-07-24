@@ -56,16 +56,17 @@
 **命名一致:文件名 / 函数名 / 对象名三者同名(网站全名)。**
 **目录:6 个数据源放 `services/dataSource/`;`stations.js`、`spotConditions.js` 放 `services/` 顶层。**
 **(样例文件 `sampleConditions.js` 已删除 —— 字段契约在 design.md。)**
+**站点解析在编排层:`spotConditions.js` 先并行调三个 `nearestXxxStation`,把站点传给 coops/ndbc(它们不再自己找站,便于复用)。**
 
-- [ ] `src/services/stations.js`(haversine + 站点列表缓存,就近找站;coops/ndbc/usgs 共用)
-- [ ] `src/services/dataSource/nationalWeatherService.js`：`getNationalWeatherService()` → **`NationalWeatherServiceObject`**
-- [ ] `src/services/dataSource/noaaCoops.js`：`getNoaaCoops()` → **`NoaaCoopsObject`**
-- [ ] `src/services/dataSource/noaaNdbc.js`：`getNoaaNdbc()` → **`NoaaNdbcObject`**
-- [ ] `src/services/dataSource/astronomy.js`：`getAstronomy()` → **`AstronomyObject`**(suncalc)
+- [x] `src/services/stations.js`(haversine + 站点列表缓存,就近找站;coops/ndbc/usgs 共用)—— 已实测:tide/current/ndbc 站均可查,7 项测试通过
+- [x] `src/services/dataSource/nationalWeatherService.js`：`getNationalWeatherService()` → **`NationalWeatherServiceObject`** —— 已实测通过(grid/风/阵风/逐小时/警报)
+- [x] `src/services/dataSource/noaaCoops.js`：`getNoaaCoops(lat,lng,{tideStation,currentStation})` → **`NoaaCoopsObject`** —— 已实测通过(高低潮/实时水位/潮流,站点由编排层传入)
+- [x] `src/services/dataSource/noaaNdbc.js`：`getNoaaNdbc(lat,lng,{buoyStation})` → **`NoaaNdbcObject`** —— 已实测通过(解析 realtime2 文本;每字段取最近有效值 MM→null)
+- [x] `src/services/dataSource/astronomy.js`：`getAstronomy()` → **`AstronomyObject`**(suncalc,日月全套)—— 已实测通过(日出与 NWS 差 1.3 分钟,含月相/月照率)
 - [ ] `src/services/dataSource/usgsWaterData.js`：`getUsgsWaterData()` → **`UsgsWaterDataObject`**
 - [ ] `src/services/dataSource/noaaBathymetry.js`：`getNoaaBathymetry()` → **`NoaaBathymetryObject`**
 - [ ] `src/services/spotConditions.js`：`getSpotConditions()` → **`SpotConditions`**(并发合成上面 6 个)
-- [ ] `package.json` 加 `suncalc` 依赖
+- [x] `package.json` 加 `suncalc` 依赖(已 npm i)
 
 ---
 
