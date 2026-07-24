@@ -130,11 +130,15 @@
 
 ---
 
-## ⬜ 任务 7:入口装配
-- [ ] `src/index.js`
-  - `assertConfig()` → `startBot()`
-  - 优雅退出(SIGINT 断开连接)
-  - (不再需要 Express / 端口监听)
+## ✅ 任务 7:入口装配
+- [x] `src/index.js`
+  - `assertConfig()` 缺配置早失败(已验证:清晰报错 + 退出码 1)
+  - `startBot({ onMessage })` 把 bot 文本消息接到 `runAgent`
+  - 优雅退出(SIGINT/SIGTERM → 断连 + `pool.end()`,一次性守卫)
+  - `unhandledRejection` 兜底不静默崩;不监听入站端口(常驻 WS 客户端)
+  - 已验证:整个模块图干净加载 + 配置自检
+
+**状态:已完成(待 review)**
 
 ---
 
