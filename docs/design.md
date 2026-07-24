@@ -26,8 +26,8 @@ LLM agent 分析意图,自动调用工具(查/存钓点坐标、查某坐标的�
                         │
    ┌──────────────┬─────────────┼──────────────┬──────────┐
    ▼              ▼             ▼              ▼          ▼
- queryCurrent   predict      queryCoords     addCoord
- Weather        Weather      (查库)          (存库)
+ getCurrent     getPredict   getCoordinate   addCoordinate
+ Weather        Weather      ByName(查库)    (存库)
  (现在实测)     (未来预测)
    │              │
    │  getCurrentConditions   │  getPredictConditions
@@ -80,8 +80,8 @@ LLM agent 分析意图,自动调用工具(查/存钓点坐标、查某坐标的�
 7. **数据库:Postgres**(pg),坐标存 `coordinates` 表。
 
 8. **两个天气 tool（AI 按问题自动路由)+ 挑选式聚合。**
-   - `queryCurrentWeather` → `getCurrentConditions`:回答"现在这里怎么样"(实测快照)。
-   - `predictWeather` → `getPredictConditions`:回答"未来某天/等下怎样、涨还是退"(逐小时时间线 + 高低潮)。
+   - `getCurrentWeather` → `getCurrentConditions`:回答"现在这里怎么样"(实测快照)。
+   - `getPredictWeather` → `getPredictConditions`:回答"未来某天/等下怎样、涨还是退"(逐小时时间线 + 高低潮)。
    编排层不是把 6 源原样堆在一起,而是**挑选 + 重组**(curation):按字段取最优源、
    缺则兜底,合成给 agent 直接可用的对象。某源失败只让相关字段为 `null`,不影响整体
    (`settle()` 容错 → `errors[]`)。**站点先统一解析一次再复用**。
@@ -109,11 +109,11 @@ fishHelper/
     ├── agent/
     │   ├── agentCore.js      # OpenAI function-calling 主循环
     │   └── tools/
-    │       ├── index.js            # 工具注册表 (schema + execute 映射)
-    │       ├── queryCurrentWeather.js # 调 getCurrentConditions(lat,lng,{name,note})
-    │       ├── predictWeather.js      # 调 getPredictConditions(lat,lng,{name,note,date})
-    │       ├── queryCoords.js
-    │       └── addCoord.js
+    │       ├── index.js               # 工具注册表 (schema + execute 映射)
+    │       ├── getCurrentWeather.js    # 调 getCurrentConditions(lat,lng,{name,note})
+    │       ├── getPredictWeather.js    # 调 getPredictConditions(lat,lng,{name,note,date})
+    │       ├── getCoordinateByName.js
+    │       └── addCoordinate.js
     └── services/
         ├── spotConditions.js            # getCurrentConditions / getPredictConditions（挑选+重组）
         ├── stations.js                  # 就近找站的通用工具(haversine + 站点列表缓存)

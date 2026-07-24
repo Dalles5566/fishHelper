@@ -1,14 +1,15 @@
 // ============================================================================
 // 工具注册表 —— agentCore 从这里拿"给 OpenAI 的 schema"和"名字→执行函数"映射。
 //   新增工具:在此 import 并加进 tools 数组即可,agentCore 主循环不用改。
+//   约定:tool 的 name === 文件名(如 getCurrentWeather → getCurrentWeather.js)。
 // ============================================================================
-import queryCoords from './queryCoords.js';
-import addCoord from './addCoord.js';
-import queryCurrentWeather from './queryCurrentWeather.js';
-import predictWeather from './predictWeather.js';
+import getCoordinateByName from './getCoordinateByName.js';
+import addCoordinate from './addCoordinate.js';
+import getCurrentWeather from './getCurrentWeather.js';
+import getPredictWeather from './getPredictWeather.js';
 
 /** 所有工具(每个 = { name, description, parameters, execute }) */
-export const tools = [queryCoords, addCoord, queryCurrentWeather, predictWeather];
+export const tools = [getCoordinateByName, addCoordinate, getCurrentWeather, getPredictWeather];
 
 /** OpenAI function-calling 需要的 tools 数组 */
 export const toolSchemas = tools.map((t) => ({
