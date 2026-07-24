@@ -1,0 +1,21 @@
+{
+  "name": "fishhelper",
+  "version": "0.1.0",
+  "description": "钓鱼助手：企业微信 + OpenAI agent + Postgres + Stormglass 风力/潮汐查询",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "db:init": "node src/db/init.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@wecom/aibot-node-sdk": "^1.0.7",
+    "openai": "^4.67.3",
+    "pg": "^8.13.0"
+  },
+  "license": "MIT"
+}
