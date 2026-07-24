@@ -89,7 +89,7 @@
       由 spotConditions **仅在 CO-OPS current 缺数据时才调**(平时不请求)。
 - [x] **astronomy** 精修定稿(纯计算源,任意时间;三次 suncalc 各自 try/catch→errors;moonIllumination 扁平;date/units;满注释)
 - [x] **usgsWaterData** 精修定稿(纯观测:current 观测/prediction→无预报;bbox 找最近站;英制默认可切公制;errors;注释)
-- [ ] **noaaBathymetry** 精修(静态;errors)
+- [x] **noaaBathymetry** 精修定稿(静态源,无 mode/无时间;英制默认可切公制 m→ft;陆地点识别;errors;注释)
 - [ ] (可选)抽公共 fetch/超时工具,减少重复
 
 ---

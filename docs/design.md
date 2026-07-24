@@ -226,7 +226,9 @@ fishHelper/
 - `usgsWaterData.js`:`getUsgsWaterData(lat,lng,{mode,unitSystem})` —— bbox 查附近站的 iv,
   用 haversine 挑最近站。纯观测源:`mode:'current'` 返回流量/水位/水温,`mode:'prediction'` 无预报。
   单位默认 english(流量/水位换算,水温 degC→degF),扁平值+units;逐段 try/catch→errors[]
-- `noaaBathymetry.js`:NCEI DEM identify 直接按坐标 → 点水深(不用站)
+- `noaaBathymetry.js`:`getNoaaBathymetry(lat,lng,{unitSystem})` —— NCEI DEM identify 按坐标直查点水深。
+  静态源(无 mode/无时间);高程负值取绝对值=水深,正值=陆地(depth 0 + elevation + note)。
+  单位默认 english(m→ft);fetch/解析各自 try/catch→errors[](不用站)
 - `stations.js`:haversine + 站点列表(带缓存);由 `spotConditions.js` 在编排层调用
 
 ### 字段映射规则(真实请求验证得出)
