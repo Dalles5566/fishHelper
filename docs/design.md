@@ -24,17 +24,19 @@ LLM agent 分析意图,自动调用工具(查/存钓点坐标、查某坐标的�
                         ▼
                   AgentCore (OpenAI function-calling)
                         │
-      ┌─────────────────┼─────────────────┐
-      ▼                 ▼                 ▼
- queryWeather      queryCoords        addCoord
- (查综合状况)       (查库)             (存库)
-      │
-      ▼  getSpotConditions(lat,lng) 并发查 6 源
+   ┌──────────────┬─────────────┼──────────────┬──────────┐
+   ▼              ▼             ▼              ▼          ▼
+ queryCurrent   predict      queryCoords     addCoord
+ Weather        Weather      (查库)          (存库)
+ (现在实测)     (未来预测)
+   │              │
+   │  getCurrentConditions   │  getPredictConditions
+   ▼  (lat,lng,{name,note})  ▼  (lat,lng,{name,note,date})
  ┌────────┬────────┬────────┬───────────┬────────┬────────────┐
  │ coops  │ ndbc   │ nws    │ astronomy │ usgs   │ bathymetry │
  │ 潮汐   │ 浪/海温 │ 天气/风 │ 日月       │ 河流   │ 水深        │
  └────────┴────────┴────────┴───────────┴────────┴────────────┘
-      │  各自映射成子 object，合成 SpotConditions
+      │  "挑选 + 重组"（curation，非原样堆叠）
       ▼
                   AgentCore 整理
                         │  replyStream(流式)
@@ -77,10 +79,12 @@ LLM agent 分析意图,自动调用工具(查/存钓点坐标、查某坐标的�
 
 7. **数据库:Postgres**(pg),坐标存 `coordinates` 表。
 
-8. **单一天气 tool + 6 object 聚合。**
-   agent 只调 `queryWeather(lat,lng)` → 内部 `getSpotConditions` 用
-   `Promise.allSettled` 并发查 6 源,某源失败/无数据只让其子 object
-   `available:false`,不影响整体。新增数据源 = 加一个 service + 往合成里挂一个 object。
+8. **两个天气 tool（AI 按问题自动路由)+ 挑选式聚合。**
+   - `queryCurrentWeather` → `getCurrentConditions`:回答"现在这里怎么样"(实测快照)。
+   - `predictWeather` → `getPredictConditions`:回答"未来某天/等下怎样、涨还是退"(逐小时时间线 + 高低潮)。
+   编排层不是把 6 源原样堆在一起,而是**挑选 + 重组**(curation):按字段取最优源、
+   缺则兜底,合成给 agent 直接可用的对象。某源失败只让相关字段为 `null`,不影响整体
+   (`settle()` 容错 → `errors[]`)。**站点先统一解析一次再复用**。
 
 ## 3. 目录结构
 
@@ -105,12 +109,13 @@ fishHelper/
     ├── agent/
     │   ├── agentCore.js      # OpenAI function-calling 主循环
     │   └── tools/
-    │       ├── index.js      # 工具注册表 (schema + execute 映射)
-    │       ├── queryWeather.js  # 调 getSpotConditions(lat,lng)
+    │       ├── index.js            # 工具注册表 (schema + execute 映射)
+    │       ├── queryCurrentWeather.js # 调 getCurrentConditions(lat,lng,{name,note})
+    │       ├── predictWeather.js      # 调 getPredictConditions(lat,lng,{name,note,date})
     │       ├── queryCoords.js
     │       └── addCoord.js
     └── services/
-        ├── spotConditions.js            # getSpotConditions(lat,lng) → SpotConditions（合成 6 源）
+        ├── spotConditions.js            # getCurrentConditions / getPredictConditions（挑选+重组）
         ├── stations.js                  # 就近找站的通用工具(haversine + 站点列表缓存)
         └── dataSource/                  # 6 个数据源 service（一源一 object）
             ├── nationalWeatherService.js# getNationalWeatherService() → NationalWeatherServiceObject
@@ -152,7 +157,10 @@ fishHelper/
 - `tools/`:每个工具导出 `{ name, description, parameters, execute(args) }`
   - `queryCoords`:查数据库坐标(全部或按名)
   - `addCoord`:新增坐标到数据库
-  - `queryWeather`:给定经纬度,调 `services/combination.js` 的 `getSpotConditions`
+  - `queryCurrentWeather`:调 `getCurrentConditions(lat,lng,{name,note,unitSystem})` —— "现在"
+  - `predictWeather`:调 `getPredictConditions(lat,lng,{name,note,date,unitSystem})` —— "未来/等下"
+  > 典型链路:用户问"xxx 今天怎样" → agent 先 `queryCoords('xxx')` 拿到
+  > `{name,latitude,longitude,note}` → 再把 name/note/坐标传给天气 tool,输出顶部即带 name/note。
 
 ### services 层(一源一 object → 合成 SpotConditions)
 每个 service 导出 `getXxx(lat, lng)`,内部**请求 → 映射成自己的 object**;
@@ -167,44 +175,65 @@ fishHelper/
 | `astronomy.js` | `getAstronomy()` | `AstronomyObject` |
 | `usgsWaterData.js` | `getUsgsWaterData()` | `UsgsWaterDataObject` |
 | `noaaBathymetry.js` | `getNoaaBathymetry()` | `NoaaBathymetryObject` |
-| `spotConditions.js` | `getSpotConditions()` | `SpotConditions` |
+| `spotConditions.js` | `getCurrentConditions()` / `getPredictConditions()` | 挑选+重组结果 |
 
-- `spotConditions.js`:`getSpotConditions(lat, lng) -> SpotConditions`
-  **先统一解析站点(一次,复用)**,再把站点传给需要的 service:
+- `spotConditions.js`:**两个入口 + 挑选式重组**(不是把 6 源原样堆叠,而是按字段挑最优源、缺则兜底)。
+  两个入口都先 `resolveStations()` 统一解析三站(潮汐/潮流/浮标)再复用;`settle()` 容错 → `errors[]`;
+  时间一律用 `toLocal()` 转钓点本地时(见「时间统一规则」)。
+
+  **入口 A `getCurrentConditions(lat,lng,{name,note,unitSystem})` → tool `queryCurrentWeather`**
   ```js
-  // ① 并行解析三个最近站(stations.js)
-  const [tideStation, currentStation, buoyStation] = await Promise.all([
-    nearestCoopsTideStation(lat, lng),
-    nearestCoopsCurrentStation(lat, lng),
-    nearestNdbcStation(lat, lng),
-  ]);
-  // ② Promise.allSettled 并发调 6 源(站点作为参数传入)
-  //    getNoaaCoops(lat, lng, { tideStation, currentStation })
-  //    getNoaaNdbc(lat, lng, { buoyStation })
-  //    getNationalWeatherService(lat, lng) 等
-  // ③ 合成:
   {
-    latitude, longitude, fetchedAt, timezone,
-    sources: {
-      noaaCoops,              // NoaaCoopsObject
-      noaaNdbc,               // NoaaNdbcObject
-      nationalWeatherService, // NationalWeatherServiceObject
-      astronomy,              // AstronomyObject
-      usgsWaterData,          // UsgsWaterDataObject
-      noaaBathymetry,         // NoaaBathymetryObject
-    }
+    name, note,                    // 来自数据库(裸坐标查询时为 null)
+    latitude, longitude, currentTime,
+    currentTideAndWeather: {       // 现在实测快照(拍平合并)
+      observedAt, waterLevel,      // coops 实测(waterLevel=含气象余差的实测水位)
+      airTemp, waterTemp, airPressure,
+      wind:{ speed, direction, cardinal, gust },
+      shortForecast, precipitationProbability, thunderstormProbability,
+      waveHeight, wavePeriod, waveDirection, alerts, units
+      // 取值:风/温/阵风 coops→nws 兜底;水温 coops→ndbc 兜底;浪 nws→ndbc 兜底;
+      //       风速统一 knots/(m·s)(nws 的 mph/kmh 兜底时换算)
+    },
+    common: {...},                 // 常驻块(见下)
+    errors: []
   }
   ```
-  > 站点解析放在编排层的原因:多个地方会用到同一批站,统一解析一次即可复用,
-  > dataSource 的 service 不再各自找站,只负责"用给定站号拉数据 + 映射"。
+
+  **入口 B `getPredictConditions(lat,lng,{name,note,date,unitSystem})` → tool `predictWeather`**
+  ```js
+  {
+    name, note, latitude, longitude, date, currentTime,
+    predictTideAndWeather: {
+      tideExtremes: { firstHighTide, firstLowTide, secondHighTide, secondLowTide },  // {time,height}
+      hourly: [                    // coops 潮 + nws 天气 按同一时刻合并(时间取两源交集,严格对齐)
+        { time, waterLevel, temperature, windSpeed, windDirection,
+          tidalCurrentSpeed, tidalCurrentDirection, windGust,
+          precipitationProbability, thunderstormProbability, waveHeight, wavePeriod, shortForecast }
+      ],
+      alerts, units
+    },
+    common: {...},
+    errors: []
+  }
+  ```
+
+  **common(常驻块,两入口共用,扁平):** astronomy → sunrise/sunset/moonrise/moonset/moonIllumination;
+  bathymetry → locationDepth;usgs → riverDischarge/gaugeHeight/riverTemperature。
+
+  > 顶层不再输出 `timezone`/`unitSystem`:时间已带本地偏移(如 `-04:00`),各块自带 `units`。
   >
-  > **NDBC 条件兜底**:`spotConditions` 平时用 CO-OPS(现在:水位/水温/气温/风/气压)+
-  > NWS(预报:天气/风/浪)+ astronomy/usgs/bathymetry;**仅当 CO-OPS current 缺数据时
-  > 才调用 noaaNdbc 兜底**(补水温,顺带拿观测的浪)。这样避免重复请求。
+  > **窗口对齐**:coops 预测的 `begin_date` 从"当前整点"起、range=hours,与 NWS forecastHourly
+  > "从现在往后"对齐;`hourly` 取两源时间交集,保证每行时间一致。
+  >
+  > **NDBC 只在 current 兜底,predict 不用**:NDBC 是纯观测源(无预报),`getPredictConditions`
+  > 不调它;`getCurrentConditions` 也仅在 coops 缺水温 / nws 缺浪时才用它的观测值。
 - `noaaCoops.js`:`getNoaaCoops(lat,lng,{tideStation,currentStation,date,mode,unitSystem})`
   **双模式(互斥)**:
   - `mode:'prediction'`(默认):`prediction` = { firstHighTide/firstLowTide/secondHighTide/
-    secondLowTide + hourly[{time,waterLevel,speed,direction}] },`current`=null
+    secondLowTide + hourly[{time,waterLevel,speed,direction}] },`current`=null。
+    **预测窗口从"当前整点"起、range=hours(与 NWS 对齐)**,不再从当天午夜起。
+  - ⚠️ `num()` 已修:`Number(null)`/`Number('')` 会得 `0`,现先挡 null/空串 → 无传感器站返回 `null` 而非假 `0`。
   - `mode:'current'`:`current` = { time, waterLevel, waterTemp, airTemp, wind{speed,direction,
     cardinal,gust}, airPressure }(站点实测),`prediction`=null
   - `station: { tide, tidalCurrent }`;`unitSystem` 默认 **english**(可 metric),`units` 字段说明单位
@@ -242,9 +271,10 @@ fishHelper/
 - **CO-OPS**:请求用 `time_zone=gmt` → 直接得 UTC → `"...Z"`
 - **NDBC**:realtime2 本就是 GMT → 直接 `"...Z"`
 - **NWS**:返回带本地偏移(如 `-04:00`)→ `new Date(t).toISOString()` 转 UTC(去毫秒)
-- **展示本地化**:`SpotConditions` 顶层带 `timezone`(取自 NWS points 的 `timeZone`,
-  如 `America/New_York`),由 **agent 在回复时**把 UTC 换算成钓点本地时间给用户看。
-- 原则:**内部存/传 UTC,展示才本地化**。
+- **本地化在编排层**:`spotConditions` 用 `toLocal(utcIso, tz)`(Intl + IANA 时区,自动处理夏令时)
+  把所有出口时间转成钓点本地时 ISO8601(带偏移,如 `2026-07-24T14:00:00-04:00`)。
+  时区取自 NWS 的 `timeZone`(如 `America/New_York`)。顶层不再单列 `timezone`(偏移已在时间串里)。
+- 原则:**dataSource 层一律 UTC(`...Z`);spotConditions 出口一律本地时**。agent 拿到就是本地时,直接用。
 
 ### dataSource 通用约定(精修基线,以 noaaCoops 为模板)
 - **双模式** `mode`(适用于有实测+预测之分的源):`'prediction'`(未来预测)/ `'current'`(现在实测),
@@ -272,12 +302,15 @@ coordinates (
 用户在微信里 @机器人 或私聊:
 - 「帮我把'Narragansett'加进去,坐标 41.48075, -71.33550」
   → agent 调 `addCoord` → 流式回复「已保存钓点:Narragansett」
-- 「Narragansett 今天好钓吗?什么时候涨潮?」
-  → agent 调 `queryCoords('Narragansett')` 拿经纬度
-  → agent 调 `queryWeather(41.48075, -71.33550)`(内部 getSpotConditions 并发 6 源)
+- 「Narragansett 现在怎么样?」
+  → agent 调 `queryCoords('Narragansett')` 拿 `{name,lat,lng,note}`
+  → agent 调 `queryCurrentWeather(lat,lng,{name,note})`(getCurrentConditions,实测快照)
+  → 流式回复「现在潮位 2.5ft、水温 70°F、南风 7 节、天晴…(还带上你的备注)」
+- 「Narragansett 今天好钓吗?什么时候涨潮?/ 明天呢?」
+  → agent 调 `queryCoords` 拿坐标 → 调 `predictWeather(lat,lng,{name,note,date})`
+    (getPredictConditions:逐小时时间线 + tideExtremes)
   → agent 综合潮汐窗口 + 日月 + 风 + 水温推理
-  → 流式回复「Newport 站高潮 16:10、日落 20:12,南风 7mph,水温 21.6°C,
-    傍晚涨潮配日落是好窗口;该点水深约 7m 偏浅」
+  → 流式回复「高潮 17:11(3.4ft)、日落 20:10,傍晚涨潮配日落是好窗口;该点水深约 10.8ft」
 
 ## 7. 前置准备
 

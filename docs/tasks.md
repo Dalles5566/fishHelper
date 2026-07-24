@@ -65,10 +65,16 @@
 - [x] `src/services/dataSource/astronomy.js`：`getAstronomy()` → **`AstronomyObject`**(suncalc,日月全套)—— 已实测通过(日出与 NWS 差 1.3 分钟,含月相/月照率)
 - [x] `src/services/dataSource/usgsWaterData.js`：`getUsgsWaterData()` → **`UsgsWaterDataObject`** —— 已实测通过(bbox 查+就近挑站;流量/水位/水温;-999999→null;时间 UTC)
 - [x] `src/services/dataSource/noaaBathymetry.js`：`getNoaaBathymetry()` → **`NoaaBathymetryObject`** —— 已实测通过(NCEI DEM 点水深;负高程取绝对值;陆地点识别)
-- [x] `src/services/spotConditions.js`：`getSpotConditions(lat,lng,{mode,date,unitSystem})` → **`SpotConditions`**
-      —— 已实测通过。① 并行解析 CO-OPS 站 ② 并发调常备源(coops/nws/astronomy/bathymetry/usgs)
-      ③ NDBC 条件兜底(仅 current 且 CO-OPS current 缺数据)④ 合成,顶层带 timezone。
-      current:6 源;prediction:usgs/ndbc 自动"无预报"降级。settle() 容错→errors[]
+- [x] `src/services/spotConditions.js`：**两个入口(挑选+重组,非原样堆叠)** —— 已实测通过
+      - `getCurrentConditions(lat,lng,{name,note,unitSystem})` → tool `queryCurrentWeather`:
+        `currentTideAndWeather`(实测快照,拍平合并:风/温 coops→nws 兜底、水温 coops→ndbc 兜底、
+        浪 nws→ndbc 兜底、风速统一 knots)+ `common` + name/note/currentTime
+      - `getPredictConditions(lat,lng,{name,note,date,unitSystem})` → tool `predictWeather`:
+        `predictTideAndWeather`{ tideExtremes + hourly(coops 潮 + nws 天气按**时间交集**对齐)+ alerts }
+        + `common`
+      - 公共:`resolveStations()` 站点解析一次复用;`toLocal()` 全部时间转钓点本地时;
+        顶层不输出 timezone/unitSystem(偏移在时间串、units 在各块);settle() 容错→errors[]
+      - coops 预测窗口改为"从当前整点起 range=hours"(与 NWS 对齐);修复 coops `num(null)→0` bug
 - [x] `package.json` 加 `suncalc` 依赖(已 npm i)
 
 **数据源已定稿:6 个全免费(NOAA/NWS/USGS + suncalc)。评估过 Stormglass(付费,10次/天太贵)
@@ -97,10 +103,12 @@
 ---
 
 ## ⬜ 任务 5:工具层
-- [ ] `src/agent/tools/queryCoords.js`
+- [ ] `src/agent/tools/queryCoords.js`(按名/全部查库,返回 {name,lat,lng,note})
 - [ ] `src/agent/tools/addCoord.js`
-- [ ] `src/agent/tools/queryWeather.js`(调 `getSpotConditions(lat,lng)`)
+- [ ] `src/agent/tools/queryCurrentWeather.js`(调 `getCurrentConditions(lat,lng,{name,note})` —— "现在")
+- [ ] `src/agent/tools/predictWeather.js`(调 `getPredictConditions(lat,lng,{name,note,date})` —— "未来/等下")
 - [ ] `src/agent/tools/index.js`(注册表)
+> AI 按问题自动选 current / predict;查点名时先 queryCoords 拿坐标+name+note 再传给天气 tool。
 
 ---
 
@@ -133,7 +141,10 @@
 - LLM:**OpenAI**(function calling),默认 gpt-4o-mini(可配)
 - 数据库:**Postgres**(pg)
 - 数据源:**NOAA CO-OPS / NDBC / NWS / USGS / NCEI DEM + suncalc**(全免费,适用美国)
-- 架构:**一源一 object → 合成 `SpotConditions`**(单 tool `queryWeather` 调 `getSpotConditions`)
+- 架构:**挑选+重组(curation)**,两个天气 tool 按问题路由:
+  `queryCurrentWeather`→`getCurrentConditions`(现在)、`predictWeather`→`getPredictConditions`(未来)
+- 时间:dataSource 层全 UTC,spotConditions 出口全部转钓点本地时(toLocal);顶层不单列 timezone/unitSystem
+- name/note:天气对象顶部带钓点名与备注(来自 DB,上层查库后传入)
 - 回复方式:**流式 replyStream**
 
 ## 确认记录

@@ -66,25 +66,39 @@ function toIsoUtc(t) {
   return t.replace(' ', 'T') + (t.length === 16 ? ':00Z' : 'Z');
 }
 
-/** 字符串数字 → number;非法/缺失 → null */
+/** 字符串数字 → number;缺失/空/非法 → null(注意:Number(null)、Number('') 都是 0,必须先挡)*/
 function num(v) {
+  if (v == null || v === '') return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
 
-/** Date → CO-OPS begin_date 需要的 "yyyyMMdd" 和展示用 "yyyy-MM-dd"(按 UTC) */
+/** Date → 展示用 "yyyy-MM-dd"(按 UTC) */
 function fmtDay(d) {
   const p = (n) => String(n).padStart(2, '0');
   const y = d.getUTCFullYear();
   const mo = p(d.getUTCMonth() + 1);
   const da = p(d.getUTCDate());
-  return { day: `${y}${mo}${da}`, dayStr: `${y}-${mo}-${da}` };
+  return { dayStr: `${y}-${mo}-${da}` };
+}
+
+/**
+ * Date → CO-OPS begin_date 的 "yyyyMMdd HH:mm"(UTC,向下取整到整点)。
+ * 预测窗口从这个时间点起、往后 range 小时 —— 与 NWS "从现在往后" 对齐。
+ */
+function fmtBegin(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  const y = d.getUTCFullYear();
+  const mo = p(d.getUTCMonth() + 1);
+  const da = p(d.getUTCDate());
+  const hh = p(d.getUTCHours());
+  return `${y}${mo}${da} ${hh}:00`;
 }
 
 // ----------------------------------------------------------------------------
 // 分支①:预测模式 —— 高低潮 + 逐小时潮位(合并逐小时潮流)
 // ----------------------------------------------------------------------------
-async function buildPrediction(tideStationId, currentStation, day, hours, unitSystem, errors) {
+async function buildPrediction(tideStationId, currentStation, begin, hours, unitSystem, errors) {
   const prediction = {
     firstHighTide: null,
     firstLowTide: null,
@@ -93,9 +107,9 @@ async function buildPrediction(tideStationId, currentStation, day, hours, unitSy
     hourly: [], // [{ time, waterLevel, speed, direction }]
   };
 
-  // (1) 当天高低潮:interval=hilo → 拆成 first/second 的 high/low
+  // (1) 未来窗口内高低潮:interval=hilo → 拆成 first/second 的 high/low
   const hilo = await safeFetch('hilo', {
-    begin_date: day, range: '24', product: 'predictions', interval: 'hilo',
+    begin_date: begin, range: String(hours), product: 'predictions', interval: 'hilo',
     datum: 'MLLW', station: tideStationId, time_zone: 'gmt', units: unitSystem, format: 'json',
   }, errors);
   if (hilo) {
@@ -114,7 +128,7 @@ async function buildPrediction(tideStationId, currentStation, day, hours, unitSy
   const currentByTime = new Map();
   if (currentStation && currentStation.station) {
     const cp = await safeFetch('currents', {
-      begin_date: `${day} 00:00`, range: String(hours), product: 'currents_predictions',
+      begin_date: begin, range: String(hours), product: 'currents_predictions',
       station: currentStation.station.id, time_zone: 'gmt', units: unitSystem,
       interval: '60', format: 'json', bin: '1',
     }, errors);
@@ -130,7 +144,7 @@ async function buildPrediction(tideStationId, currentStation, day, hours, unitSy
 
   // (3) 逐小时潮位:interval=h → 合并潮流 → hourly[]
   const hourly = await safeFetch('hourly', {
-    begin_date: `${day} 00:00`, range: String(hours), product: 'predictions', interval: 'h',
+    begin_date: begin, range: String(hours), product: 'predictions', interval: 'h',
     datum: 'MLLW', station: tideStationId, time_zone: 'gmt', units: unitSystem, format: 'json',
   }, errors);
   if (hourly) {
@@ -191,10 +205,11 @@ export async function getNoaaCoops(
     }
     const units = UNIT_MAP[unitSystem] ? unitSystem : 'english';
 
-    // 目标日期(默认现在);非法输入回退到现在
+    // 预测窗口起点(默认现在);非法输入回退到现在。窗口 = [begin, begin+hours]
     const target = date ? new Date(date) : new Date();
     const when = Number.isNaN(target.getTime()) ? new Date() : target;
-    const { day, dayStr } = fmtDay(when);
+    const { dayStr } = fmtDay(when);
+    const begin = fmtBegin(when);
     const tideStationId = tideStation.station.id;
 
     const result = {
@@ -219,7 +234,7 @@ export async function getNoaaCoops(
     if (mode === 'current') {
       result.current = await buildCurrent(tideStationId, units, errors);
     } else {
-      result.prediction = await buildPrediction(tideStationId, currentStation, day, hours, units, errors);
+      result.prediction = await buildPrediction(tideStationId, currentStation, begin, hours, units, errors);
     }
 
     return result;
