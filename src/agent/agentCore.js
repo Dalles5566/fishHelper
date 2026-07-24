@@ -69,35 +69,20 @@ function safeName(s) {
 }
 
 /**
- * 组装输出为 { text, files }:
- *   - 预测(predictTideAndWeather,逐小时很长)→ 完整 JSON 作为 .txt 附件
- *   - 现在(currentTideAndWeather,较短)→ JSON 内联在文本里
- *   - 末尾接【大哥的建议】(模型综合判断)
+ * 组装输出为 { text, files }。
+ *   - 每个天气结果(current 或 predict 一律)→ 完整 spotConditions JSON 做成 .txt 附件
+ *   - text = agent 基于 result 分析出的【大哥的建议】(不再内联 JSON,企业微信收得快)
  * 没调天气工具(纯查/存坐标)→ 只回建议、无附件。
  * @returns {{ text: string, files: {filename:string, content:string}[] }}
  */
 function buildOutput(finalText, weatherResults) {
   const suggestion = ensureDage(finalText);
-  const files = [];
-  const parts = [];
-
-  for (const r of weatherResults) {
-    const json = JSON.stringify(r, null, 2);
-    if (r.predictTideAndWeather) {
-      // 预测:长,做成 txt 附件(名字缺失时用坐标兜底)
-      const label = r.name || `${r.latitude},${r.longitude}`;
-      files.push({ filename: `预测_${safeName(label)}_${r.date || ''}.txt`, content: json });
-    } else {
-      // 现在:短,内联
-      parts.push(`【海况数据 spotConditions】\n${json}`);
-    }
-  }
-  if (files.length) {
-    parts.push(`📎 完整逐小时预测数据见附件:${files.map((f) => f.filename).join('、')}`);
-  }
-  parts.push(`【大哥的建议】\n${suggestion}`);
-
-  return { text: parts.join('\n\n'), files };
+  const files = weatherResults.map((r) => {
+    const label = r.name || `${r.latitude},${r.longitude}`;
+    const stamp = r.date || (r.currentTime ? r.currentTime.slice(0, 10) : '');
+    return { filename: `海况_${safeName(label)}_${stamp}.txt`, content: JSON.stringify(r, null, 2) };
+  });
+  return { text: suggestion, files };
 }
 
 /**

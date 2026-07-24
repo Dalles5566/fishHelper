@@ -158,10 +158,10 @@ fishHelper/
   - 循环:OpenAI(带 tools)→ 需要调工具则执行并回填 → 再问 →
     直到给出最终文本(最大轮数上限防死循环)
   - **回复格式**:`runAgent` 返回 `{ text, files }`。
-    - **现在**(getCurrentWeather,JSON 短):完整 JSON 内联在 text。
-    - **预测**(getPredictWeather,逐小时很长 ~12KB):完整 JSON 作为 **`.txt` 附件**(files),
-      text 里只放附件名提示 + 建议 —— 避免企业微信长文本流式接收缓慢。
-    - text 末尾接【大哥的建议】(模型综合判断,数值逐字取自工具);未调天气工具则只回建议。保证带"大哥"。
+    - 天气结果(**current 和 predict 一律**)→ 完整 spotConditions JSON 做成 **`.txt` 附件**(files),
+      避免企业微信长文本流式接收缓慢、且格式稳定(不随模型 current/predict 路由波动)。
+    - text = agent 基于 result 分析出的【大哥的建议】(数值逐字取自工具),不再内联 JSON;
+      未调天气工具(纯查/存坐标)则只回建议。回复保证带"大哥"。
     - bot 层:`files` 用 `uploadMedia`(type=file)→ `replyMedia` 发出;text 走 `replyStream`。
 - `tools/`:每个工具导出 `{ name, description, parameters, execute(args) }`(**name === 文件名**);
   `registerTools.js` 汇总为 `tools` / `toolSchemas` / `executeTool(name,args)`。
