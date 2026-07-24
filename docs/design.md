@@ -223,7 +223,9 @@ fishHelper/
 - `astronomy.js`:`getAstronomy(lat,lng,{date})` —— `suncalc` 本地算(无网络、不用站、任意时间)。
   纯计算源:无 mode、无单位制之分。字段:sunrise/sunset/moonrise/moonset(UTC)、
   moonPhase{value,name,nameZh}、moonIllumination(%,扁平)。三次调用各自 try/catch→errors[]
-- `usgsWaterData.js`:bbox 查附近站 → 用 `nearest()` 挑最近 → iv 接口(00060/00065/00010)
+- `usgsWaterData.js`:`getUsgsWaterData(lat,lng,{mode,unitSystem})` —— bbox 查附近站的 iv,
+  用 haversine 挑最近站。纯观测源:`mode:'current'` 返回流量/水位/水温,`mode:'prediction'` 无预报。
+  单位默认 english(流量/水位换算,水温 degC→degF),扁平值+units;逐段 try/catch→errors[]
 - `noaaBathymetry.js`:NCEI DEM identify 直接按坐标 → 点水深(不用站)
 - `stations.js`:haversine + 站点列表(带缓存);由 `spotConditions.js` 在编排层调用
 
