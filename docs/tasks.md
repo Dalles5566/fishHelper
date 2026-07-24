@@ -109,7 +109,7 @@
 - [x] `src/agent/tools/addCoordinate.js`(upsert 钓点,按名唯一)
 - [x] `src/agent/tools/getCurrentWeather.js`(调 `getCurrentConditions(lat,lng,{name,note,unitSystem})` —— "现在")
 - [x] `src/agent/tools/getPredictWeather.js`(调 `getPredictConditions(lat,lng,{name,note,date,unitSystem})` —— "未来/等下")
-- [x] `src/agent/tools/index.js`(注册表:`tools` / `toolSchemas` / `executeTool(name,args)`)
+- [x] `src/agent/tools/registerTools.js`(注册表:`tools` / `toolSchemas` / `executeTool(name,args)`)
 > AI 按问题自动选 current / predict;查点名时先 getCoordinateByName 拿坐标+name+note 再传给天气 tool。
 > 已验证:注册表加载、schema 结构、天气 tool 端到端执行(name/note 透传)、未知 tool 报错。
 > DB 两 tool 为 DB 层薄封装,连真库执行留到任务 8。

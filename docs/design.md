@@ -109,7 +109,7 @@ fishHelper/
     ├── agent/
     │   ├── agentCore.js      # OpenAI function-calling 主循环
     │   └── tools/
-    │       ├── index.js               # 工具注册表 (schema + execute 映射)
+    │       ├── registerTools.js        # 工具注册表 (schema + execute 映射)
     │       ├── getCurrentWeather.js    # 调 getCurrentConditions(lat,lng,{name,note})
     │       ├── getPredictWeather.js    # 调 getPredictConditions(lat,lng,{name,note,date})
     │       ├── getCoordinateByName.js
