@@ -82,7 +82,7 @@
       + prediction{firstHigh/Low/secondHigh/Low + hourly[{time,waterLevel,speed,direction}]}
       / current{waterLevel,waterTemp,airTemp,wind,airPressure} + 满注释
 - [ ] **nationalWeatherService** 按基线精修(current/prediction、units、errors)
-- [ ] **noaaNdbc** 精修(纯观测 → current;units、errors)
+- [x] **noaaNdbc** 精修定稿(纯观测:current 返回观测/prediction→无预报;英制默认可切公制;errors;扁平值+units)
 - [ ] **astronomy** 精修(prediction 任意时间;errors)
 - [ ] **usgsWaterData** 精修(纯观测 → current;units、errors)
 - [ ] **noaaBathymetry** 精修(静态;errors)
