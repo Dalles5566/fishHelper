@@ -118,11 +118,15 @@
 
 ---
 
-## ⬜ 任务 6:Agent 核心
-- [ ] `src/agent/agentCore.js`
-  - `runAgent(userText)`:OpenAI function-calling 循环
-  - system prompt(钓鱼助手角色)
-  - 最大轮数上限,工具异常捕获回填
+## ✅ 任务 6:Agent 核心
+- [x] `src/agent/agentCore.js`
+  - `runAgent(userText,{history})`:OpenAI function-calling 循环(懒加载 client)
+  - system prompt(钓鱼助手角色 + 选工具规则 + 综合潮汐/日月/风/水温判断鱼口 + 时间已本地化 + 缺数据如实说)
+  - MAX_ROUNDS=6 防死循环;轮数用尽再做一次不带工具的总结
+  - 工具异常 catch 成 `{error,message}` 回填模型;`ensureDage()` 兜底保证回复带"大哥"
+  - 已结构验证(模块加载 + toolSchemas 装配)。**真跑一轮需 OPENAI_API_KEY → 留到任务 8**
+
+**状态:已完成(待 review;实调等 key)**
 
 ---
 
