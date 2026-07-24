@@ -154,9 +154,11 @@ fishHelper/
 
 ### agent 层
 - `agentCore.js`:`runAgent(userText) -> string`
-  - system prompt 设定角色(钓鱼助手)
+  - system prompt 设定角色(钓鱼助手)+ 注入当前美东日期(解析"今天/明天"等相对日期)
   - 循环:OpenAI(带 tools)→ 需要调工具则执行并回填 → 再问 →
     直到给出最终文本(最大轮数上限防死循环)
+  - **回复格式**:调了天气工具时,先原样展示 `spotConditions` 完整 JSON(工具返回、模型不经手),
+    再接【大哥的建议】(模型综合判断);未调天气工具则只回建议。回复保证带"大哥"。
 - `tools/`:每个工具导出 `{ name, description, parameters, execute(args) }`(**name === 文件名**);
   `registerTools.js` 汇总为 `tools` / `toolSchemas` / `executeTool(name,args)`。
   - `getCoordinateByName`:查数据库坐标(传 name 按名查、否则列全部)

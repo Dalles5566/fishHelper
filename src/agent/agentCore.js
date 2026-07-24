@@ -59,6 +59,20 @@ function ensureDage(text) {
   return t.includes('大哥') ? t : `大哥,${t}`;
 }
 
+/** 会产出 spotConditions 的天气工具 */
+const WEATHER_TOOLS = new Set(['getCurrentWeather', 'getPredictWeather']);
+
+/**
+ * 组装最终回复:先展示天气工具返回的完整 spotConditions JSON,再接 agent 建议。
+ * 没调天气工具(如只查/存坐标)时,只回建议。
+ */
+function composeReply(text, weatherResults) {
+  const suggestion = ensureDage(text);
+  if (!weatherResults.length) return suggestion;
+  const jsonBlocks = weatherResults.map((r) => JSON.stringify(r, null, 2)).join('\n\n');
+  return `【海况数据 spotConditions】\n${jsonBlocks}\n\n【大哥的建议】\n${suggestion}`;
+}
+
 /**
  * 跑一轮完整问答。
  * @param {string} userText 用户输入
@@ -91,6 +105,9 @@ export async function runAgent(userText, { history = [] } = {}) {
     { role: 'user', content: String(userText ?? '').trim() },
   ];
 
+  const weatherResults = []; // 天气工具的原始 spotConditions,用于原样展示 JSON
+  let finalText = null;
+
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const completion = await client.chat.completions.create({
       model: config.openai.model,
@@ -100,12 +117,15 @@ export async function runAgent(userText, { history = [] } = {}) {
     });
 
     const msg = completion.choices?.[0]?.message;
-    if (!msg) return '大哥,模型没有返回内容,稍后再试试。';
+    if (!msg) {
+      finalText = '模型没有返回内容,稍后再试试。';
+      break;
+    }
 
     const toolCalls = msg.tool_calls || [];
     if (toolCalls.length === 0) {
-      // 没有工具调用 = 最终答案
-      return ensureDage(msg.content);
+      finalText = msg.content; // 没有工具调用 = 最终答案
+      break;
     }
 
     // 把带 tool_calls 的 assistant 消息压回上下文,再逐个执行工具并回填
@@ -119,6 +139,8 @@ export async function runAgent(userText, { history = [] } = {}) {
       } catch (err) {
         result = { error: true, tool: name, message: err.message };
       }
+      // 记录天气工具的原始结果(供最终回复原样展示 JSON)
+      if (WEATHER_TOOLS.has(name) && result && !result.error) weatherResults.push(result);
       messages.push({
         role: 'tool',
         tool_call_id: call.id,
@@ -128,11 +150,15 @@ export async function runAgent(userText, { history = [] } = {}) {
   }
 
   // 轮数用尽仍未收敛:让模型基于已有工具结果做一次不带工具的总结
-  const finalCompletion = await client.chat.completions.create({
-    model: config.openai.model,
-    messages: [...messages, { role: 'user', content: '请基于以上信息直接给出最终中文回复(不要再调用工具)。' }],
-  });
-  return ensureDage(finalCompletion.choices?.[0]?.message?.content);
+  if (finalText === null) {
+    const finalCompletion = await client.chat.completions.create({
+      model: config.openai.model,
+      messages: [...messages, { role: 'user', content: '请基于以上信息直接给出最终中文回复(不要再调用工具)。' }],
+    });
+    finalText = finalCompletion.choices?.[0]?.message?.content;
+  }
+
+  return composeReply(finalText, weatherResults);
 }
 
 export default runAgent;
