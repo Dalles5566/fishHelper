@@ -146,8 +146,11 @@ fishHelper/
 
 ### db 层(不变)
 - `pool.js`:pg 连接池
-- `coordinates.js`:`listCoordinates()` / `findCoordinateByName(name)` /
+- `coordinates.js`:`listCoordinates()` / `findCoordinateByName(name)`(精确) /
+  `searchCoordinates(term)`(name 或 note 部分匹配,ILIKE) /
   `addCoordinate({name, latitude, longitude, note})`
+  > `getCoordinateByName` 工具:先精确、查不到再模糊(名字/备注部分匹配),多个命中返回候选列表。
+  > 所以用户只说钓点名一部分(如"ProvinceTown")或备注叫法(如"军校""基佬村")也能查到。
 
 ### agent 层
 - `agentCore.js`:`runAgent(userText) -> string`
