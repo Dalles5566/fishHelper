@@ -247,6 +247,9 @@ fishHelper/
     windGust,precipitationProbability,thunderstormProbability,**waveHeight,wavePeriod**,shortForecast}
   - `mode:'current'`:`current` = 此刻那一小时的同款快照
   - **浪从 NWS 来**:gridData 的 waveHeight/wavePeriod(时间区间制→按小时展开)合并进逐小时(未来的浪)
+    - ⚠️ **已知 NWS 特性**:近岸/湾内网格格子(如 Cape Cod Bay)NWS 不做浪预报时,会返回
+      **单个 `value:0` 覆盖整个 7 天**(`P7DT1H`)。这是"无浪预报"占位,非"真的 0 尺浪"。
+      现阶段**忠实透传 NWS 原值(0)**,不做启发式改写;agent 侧解读即可。
   - 阵风/雷暴也来自 gridData;`alerts` 活跃警报放顶层;`marineZone` = forecastZone id
   - `unitSystem` 默认 english(forecastHourly units=us/si;gridData 恒 SI,英制时换算);逐请求 errors[]
 - `astronomy.js`:`getAstronomy(lat,lng,{date})` —— `suncalc` 本地算(无网络、不用站、任意时间)。
