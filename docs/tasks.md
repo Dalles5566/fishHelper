@@ -82,7 +82,8 @@
 - [x] **noaaCoops** 精修定稿:双模式 + 单位(默认英制)+ errors + station.{tide,tidalCurrent}
       + prediction{firstHigh/Low/secondHigh/Low + hourly[{time,waterLevel,speed,direction}]}
       / current{waterLevel,waterTemp,airTemp,wind,airPressure} + 满注释
-- [ ] **nationalWeatherService** 按基线精修(current/prediction、units、errors)
+- [x] **nationalWeatherService** 精修定稿(双模式 current/prediction;英制默认可切公制;errors;
+      逐小时含温度/风/阵风/降雨/雷暴/**浪高/浪周期**(gridData 展开合并);alerts 顶层;marineZone)
 - [x] **noaaNdbc** 精修定稿(纯观测:current 返回观测/prediction→无预报;英制默认可切公制;errors;扁平值+units)
       **定位=兜底源**:唯一独有"观测的浪";水温/风/气温 CO-OPS current 已有。
       由 spotConditions **仅在 CO-OPS current 缺数据时才调**(平时不请求)。

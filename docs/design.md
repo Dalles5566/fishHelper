@@ -213,8 +213,13 @@ fishHelper/
   (浪高/周期/浪向/海温/能见度)。纯观测源:`mode:'current'` 返回观测,`mode:'prediction'` 无预报。
   **定位:兜底源**。CO-OPS current 已提供水温/气温/风/气压,NDBC 唯一独有的是"观测的浪"。
   → 由 `spotConditions` **仅在 CO-OPS current 缺数据时才调用**(平时不发请求,省额度)。
-- `nationalWeatherService.js`:`points/{lat,lng}`(4 位小数)→ grid + forecastHourly;
-  阵风/雷暴来自 forecastGridData;警报 `/alerts/active`(点查,不用站)
+- `nationalWeatherService.js`:`getNationalWeatherService(lat,lng,{mode,unitSystem,hours})`(点查,不用站)
+  - `mode:'prediction'`(默认):`prediction.hourly[]` = 逐小时 {time,temperature,windSpeed,windDirection,
+    windGust,precipitationProbability,thunderstormProbability,**waveHeight,wavePeriod**,shortForecast}
+  - `mode:'current'`:`current` = 此刻那一小时的同款快照
+  - **浪从 NWS 来**:gridData 的 waveHeight/wavePeriod(时间区间制→按小时展开)合并进逐小时(未来的浪)
+  - 阵风/雷暴也来自 gridData;`alerts` 活跃警报放顶层;`marineZone` = forecastZone id
+  - `unitSystem` 默认 english(forecastHourly units=us/si;gridData 恒 SI,英制时换算);逐请求 errors[]
 - `astronomy.js`:`suncalc` 本地算日/月(无网络,不用站)
 - `usgsWaterData.js`:bbox 查附近站 → 用 `nearest()` 挑最近 → iv 接口(00060/00065/00010)
 - `noaaBathymetry.js`:NCEI DEM identify 直接按坐标 → 点水深(不用站)
