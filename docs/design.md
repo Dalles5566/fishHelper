@@ -197,6 +197,10 @@ fishHelper/
   ```
   > 站点解析放在编排层的原因:多个地方会用到同一批站,统一解析一次即可复用,
   > dataSource 的 service 不再各自找站,只负责"用给定站号拉数据 + 映射"。
+  >
+  > **NDBC 条件兜底**:`spotConditions` 平时用 CO-OPS(现在:水位/水温/气温/风/气压)+
+  > NWS(预报:天气/风/浪)+ astronomy/usgs/bathymetry;**仅当 CO-OPS current 缺数据时
+  > 才调用 noaaNdbc 兜底**(补水温,顺带拿观测的浪)。这样避免重复请求。
 - `noaaCoops.js`:`getNoaaCoops(lat,lng,{tideStation,currentStation,date,mode,unitSystem})`
   **双模式(互斥)**:
   - `mode:'prediction'`(默认):`prediction` = { firstHighTide/firstLowTide/secondHighTide/
@@ -205,8 +209,10 @@ fishHelper/
     cardinal,gust}, airPressure }(站点实测),`prediction`=null
   - `station: { tide, tidalCurrent }`;`unitSystem` 默认 **english**(可 metric),`units` 字段说明单位
   - 逐子请求 try/catch,失败记入 `errors[]`(不整体崩)。潮流逐小时仅谐波站(PCT)有,否则 speed/direction=null
-- `noaaNdbc.js`:`getNoaaNdbc(lat,lng,{buoyStation})` —— 用传入浮标 → 下 realtime2 文本 →
-  解析 WVHT/DPD/MWD/WTMP/VIS
+- `noaaNdbc.js`:`getNoaaNdbc(lat,lng,{buoyStation,mode,unitSystem})` —— 浮标**实时观测**
+  (浪高/周期/浪向/海温/能见度)。纯观测源:`mode:'current'` 返回观测,`mode:'prediction'` 无预报。
+  **定位:兜底源**。CO-OPS current 已提供水温/气温/风/气压,NDBC 唯一独有的是"观测的浪"。
+  → 由 `spotConditions` **仅在 CO-OPS current 缺数据时才调用**(平时不发请求,省额度)。
 - `nationalWeatherService.js`:`points/{lat,lng}`(4 位小数)→ grid + forecastHourly;
   阵风/雷暴来自 forecastGridData;警报 `/alerts/active`(点查,不用站)
 - `astronomy.js`:`suncalc` 本地算日/月(无网络,不用站)
