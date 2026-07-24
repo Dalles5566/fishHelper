@@ -141,6 +141,7 @@ export async function getNationalWeatherService(
       source,
       mode,
       grid: { office: p.gridId, gridX: p.gridX, gridY: p.gridY },
+      timezone: p.timeZone || null, // IANA 时区(如 America/New_York),供上层本地化展示
       marineZone: p.forecastZone ? p.forecastZone.split('/').pop() : null, // 海区/陆区 zone id
       units: UNIT_MAP[units],
       alerts: [], // 活跃警报(顶层,与模式无关)

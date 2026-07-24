@@ -65,8 +65,10 @@
 - [x] `src/services/dataSource/astronomy.js`：`getAstronomy()` → **`AstronomyObject`**(suncalc,日月全套)—— 已实测通过(日出与 NWS 差 1.3 分钟,含月相/月照率)
 - [x] `src/services/dataSource/usgsWaterData.js`：`getUsgsWaterData()` → **`UsgsWaterDataObject`** —— 已实测通过(bbox 查+就近挑站;流量/水位/水温;-999999→null;时间 UTC)
 - [x] `src/services/dataSource/noaaBathymetry.js`：`getNoaaBathymetry()` → **`NoaaBathymetryObject`** —— 已实测通过(NCEI DEM 点水深;负高程取绝对值;陆地点识别)
-- [ ] `src/services/spotConditions.js`：`getSpotConditions()` → **`SpotConditions`**(合成)
-      **NDBC 条件兜底**:平时 CO-OPS + NWS + astronomy/usgs/bathymetry;CO-OPS current 缺数据时才调 NDBC
+- [x] `src/services/spotConditions.js`：`getSpotConditions(lat,lng,{mode,date,unitSystem})` → **`SpotConditions`**
+      —— 已实测通过。① 并行解析 CO-OPS 站 ② 并发调常备源(coops/nws/astronomy/bathymetry/usgs)
+      ③ NDBC 条件兜底(仅 current 且 CO-OPS current 缺数据)④ 合成,顶层带 timezone。
+      current:6 源;prediction:usgs/ndbc 自动"无预报"降级。settle() 容错→errors[]
 - [x] `package.json` 加 `suncalc` 依赖(已 npm i)
 
 **数据源已定稿:6 个全免费(NOAA/NWS/USGS + suncalc)。评估过 Stormglass(付费,10次/天太贵)
