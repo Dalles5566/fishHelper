@@ -22,7 +22,8 @@ const SYSTEM_PROMPT = `你是"钓鱼助手大哥",一个帮用户判断钓鱼时
 - getPredictWeather:某坐标"未来约24小时"的逐小时预测 + 高低潮(tideExtremes)+ 预警。
 
 【选工具】问"现在怎么样"用 getCurrentWeather;问"今天/明天/等下、几点涨落潮、涨还是退"用 getPredictWeather。
-用户给的是钓点名而非坐标时,先 getCoordinateByName 拿坐标,再把 name/note/坐标一起传给天气工具。
+用户给的是钓点名而非坐标时,先 getCoordinateByName 拿到 {name,latitude,longitude,note},
+调天气工具时**务必把 name、note、latitude、longitude 四个都带上**(别只传坐标),这样结果里能显示钓点名和你的备注。
 
 【判断鱼口】不要只报数字。综合潮汐窗口(涨落潮时段)、日月(日出日落/月相)、风、水温、水深,
 给出"何时、好不好钓"的判断。潮汐转换前后、晨昏、日月同升落常是好窗口。
@@ -62,22 +63,49 @@ function ensureDage(text) {
 /** 会产出 spotConditions 的天气工具 */
 const WEATHER_TOOLS = new Set(['getCurrentWeather', 'getPredictWeather']);
 
+/** 生成安全文件名片段(保留中英文数字,其余转下划线)*/
+function safeName(s) {
+  return String(s || 'spot').replace(/[^\w\u4e00-\u9fa5-]+/g, '_').slice(0, 40);
+}
+
 /**
- * 组装最终回复:先展示天气工具返回的完整 spotConditions JSON,再接 agent 建议。
- * 没调天气工具(如只查/存坐标)时,只回建议。
+ * 组装输出为 { text, files }:
+ *   - 预测(predictTideAndWeather,逐小时很长)→ 完整 JSON 作为 .txt 附件
+ *   - 现在(currentTideAndWeather,较短)→ JSON 内联在文本里
+ *   - 末尾接【大哥的建议】(模型综合判断)
+ * 没调天气工具(纯查/存坐标)→ 只回建议、无附件。
+ * @returns {{ text: string, files: {filename:string, content:string}[] }}
  */
-function composeReply(text, weatherResults) {
-  const suggestion = ensureDage(text);
-  if (!weatherResults.length) return suggestion;
-  const jsonBlocks = weatherResults.map((r) => JSON.stringify(r, null, 2)).join('\n\n');
-  return `【海况数据 spotConditions】\n${jsonBlocks}\n\n【大哥的建议】\n${suggestion}`;
+function buildOutput(finalText, weatherResults) {
+  const suggestion = ensureDage(finalText);
+  const files = [];
+  const parts = [];
+
+  for (const r of weatherResults) {
+    const json = JSON.stringify(r, null, 2);
+    if (r.predictTideAndWeather) {
+      // 预测:长,做成 txt 附件(名字缺失时用坐标兜底)
+      const label = r.name || `${r.latitude},${r.longitude}`;
+      files.push({ filename: `预测_${safeName(label)}_${r.date || ''}.txt`, content: json });
+    } else {
+      // 现在:短,内联
+      parts.push(`【海况数据 spotConditions】\n${json}`);
+    }
+  }
+  if (files.length) {
+    parts.push(`📎 完整逐小时预测数据见附件:${files.map((f) => f.filename).join('、')}`);
+  }
+  parts.push(`【大哥的建议】\n${suggestion}`);
+
+  return { text: parts.join('\n\n'), files };
 }
 
 /**
  * 跑一轮完整问答。
  * @param {string} userText 用户输入
  * @param {Array} history 可选的历史消息(OpenAI messages 格式),默认空
- * @returns {Promise<string>} 最终回复文本(已保证带"大哥")
+ * @returns {Promise<{text:string, files:{filename:string,content:string}[]}>}
+ *   text = 内联数据(现在)+【大哥的建议】;files = 预测的完整 JSON(.txt 附件)
  */
 /** 当前"钓点所在时区(美东)"的日期时间,注入给模型解析"今天/明天"等相对日期 */
 function nowContext() {
@@ -158,7 +186,7 @@ export async function runAgent(userText, { history = [] } = {}) {
     finalText = finalCompletion.choices?.[0]?.message?.content;
   }
 
-  return composeReply(finalText, weatherResults);
+  return buildOutput(finalText, weatherResults);
 }
 
 export default runAgent;

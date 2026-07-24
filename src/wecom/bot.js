@@ -54,18 +54,34 @@ export function startBot({ onMessage } = {}) {
       console.error('[bot] 首次流式回复失败:', err?.message || err);
     }
 
-    // 调业务处理，拿最终结果
-    let reply;
+    // 调业务处理，拿最终结果（{ text, files } 或纯字符串）
+    let result;
     try {
-      reply = await onMessage({ text, userId, frame });
+      result = await onMessage({ text, userId, frame });
     } catch (err) {
       console.error('[bot] onMessage 处理异常:', err?.message || err);
-      reply = ERROR_TEXT;
+      result = { text: ERROR_TEXT, files: [] };
+    }
+    // 兼容旧的字符串返回
+    if (typeof result === 'string') result = { text: result, files: [] };
+    const files = Array.isArray(result?.files) ? result.files : [];
+    const finalText = (result?.text && String(result.text).trim()) || ERROR_TEXT;
+
+    // 先把长数据作为文件附件发出去（上传临时素材 → 被动回复媒体消息）
+    for (const f of files) {
+      try {
+        const media = await client.uploadMedia(Buffer.from(f.content, 'utf8'), {
+          type: 'file',
+          filename: f.filename,
+        });
+        await client.replyMedia(frame, 'file', media.media_id);
+      } catch (err) {
+        console.error(`[bot] 附件发送失败(${f.filename}):`, err?.message || err);
+      }
     }
 
-    const finalText = (reply && String(reply).trim()) || ERROR_TEXT;
+    // 再结束这条流式文本消息（finish=true）
     try {
-      // finish=true 结束这条流式消息
       await client.replyStream(frame, streamId, finalText, true);
     } catch (err) {
       console.error('[bot] 最终流式回复失败:', err?.message || err);
