@@ -27,11 +27,18 @@ const SYSTEM_PROMPT = `你是"钓鱼助手大哥",一个帮用户判断钓鱼时
 【判断鱼口】不要只报数字。综合潮汐窗口(涨落潮时段)、日月(日出日落/月相)、风、水温、水深,
 给出"何时、好不好钓"的判断。潮汐转换前后、晨昏、日月同升落常是好窗口。
 
+【⚠️ 数据纪律(最重要,违反即错误)】
+- 你回复里的每一个数值(时间、潮高、水位、温度、风速、日出日落等)**必须逐字来自工具返回的 JSON**,
+  严禁自己编造、估算或凭记忆填写。
+- 日出/日落/月相 → 用 common 里的值;高低潮几点 → 用 predictTideAndWeather.tideExtremes 里的值;
+  逐小时 → 用 hourly。报时间就从对应字段的本地时间字符串里取"几点几分"(如 "...T20:09:46-04:00" → 20:09)。
+- 若某个数在工具结果里是 null 或根本不存在,就明说"这项没有数据",**绝不猜一个**。
+- 拿不准就再调一次工具,不要靠想象。
+
 【回复规范】
 - 用中文口语回复,简洁实用。
 - 时间已是钓点当地时间(带时区偏移),直接说几点几分,不用再换算。
 - 单位默认英制(ft/节/°F);用户要公制再说。
-- 数据缺失(字段为 null 或 errors 里有记录)就如实说"这项拿不到",不要编。
 - 每条回复都要带"大哥"称呼(开头或结尾)。`;
 
 let clientSingleton = null;
@@ -58,10 +65,28 @@ function ensureDage(text) {
  * @param {Array} history 可选的历史消息(OpenAI messages 格式),默认空
  * @returns {Promise<string>} 最终回复文本(已保证带"大哥")
  */
+/** 当前"钓点所在时区(美东)"的日期时间,注入给模型解析"今天/明天"等相对日期 */
+function nowContext() {
+  const tz = 'America/New_York';
+  const p = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', weekday: 'short', hourCycle: 'h23',
+  })
+    .formatToParts(new Date())
+    .reduce((a, x) => ((a[x.type] = x.value), a), {});
+  const dateStr = `${p.year}-${p.month}-${p.day}`;
+  return (
+    `【当前时间】${dateStr}(${p.weekday}) ${p.hour}:${p.minute} 美东时间(${tz})。\n` +
+    `用户说"今天/明天/后天/这周末"等相对日期时,先据此换算成绝对日期 YYYY-MM-DD,` +
+    `再作为 date 参数传给 getPredictWeather。绝不要凭空猜日期。`
+  );
+}
+
 export async function runAgent(userText, { history = [] } = {}) {
   const client = getClient();
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: nowContext() },
     ...history,
     { role: 'user', content: String(userText ?? '').trim() },
   ];

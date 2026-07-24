@@ -142,10 +142,18 @@
 
 ---
 
-## ⬜ 任务 8:验证
-- [ ] `npm install`
-- [ ] 语法/启动自检(缺配置时给清晰报错)
-- [ ] 连接自测(有 botId/secret 时能认证成功)
+## 🔨 任务 8:验证
+- [x] 依赖已装(node_modules 就绪)
+- [x] 启动自检:缺配置清晰报错 + 退出码 1
+- [x] 本地 Postgres(Docker `fishhelper-pg`,postgres:16)+ `npm run db:init` 建表灌 5 个种子钓点
+- [x] DB 两 tool 实测:`getCoordinateByName` 按名查、`addCoordinate` upsert 均通过
+- [x] 全链路实测:`runAgent("坐标现在海况")` → getCurrentWeather;`runAgent("Fort Adams 明天几点涨潮")`
+      → getCoordinateByName → getPredictWeather,数值与工具数据逐字一致
+- [x] **修复关键 bug**:模型不知"今天",相对日期(明天/后天)靠猜 → 注入美东当前日期到 system prompt
+- [ ] 连企业微信真机:`npm start` 认证上线 + 手机企业微信里收发消息(待用户实机)
+- 已知限制:问 >~2 天的未来时,nws 逐小时只覆盖"现在起24h",天气时间线会不全(高低潮/日月不受影响)
+
+**状态:核心链路已实测通过;仅剩企业微信真机联调**
 
 ---
 
