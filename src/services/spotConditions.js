@@ -3,9 +3,9 @@
 // ----------------------------------------------------------------------------
 // 两个入口(对应 AI 的两个 tool,AI 按问题自己选):
 //
-//   getCurrentConditions(lat, lng, { name, note, unitSystem })  → tool: queryCurrentWeather
-//     回答"现在这里怎么样":实测潮位/天气/风/浪快照。
-//     { name, note, latitude, longitude, currentTime,
+//   getCurrentConditions(lat, lng, { name, note, unitSystem })  → tool: getCurrentWeather
+//     回答"现在这里怎么样":实测潮位/天气/风/浪快照 + 下一次高低潮(tideExtremes)。
+//     { name, note, latitude, longitude, currentTime, tideExtremes,
 //       currentTideAndWeather:{...}, common:{...}, errors:[] }
 //
 //   getPredictConditions(lat, lng, { name, note, date, unitSystem })  → tool: predictWeather
@@ -163,6 +163,17 @@ function buildCurrent(coops, nws, ndbc, tz, unitSystem) {
   };
 }
 
+/** 把 coops.prediction 的四个高低潮极值时间转本地(缺则 null)*/
+function localizeExtremes(pred, tz) {
+  const loc = (e) => (e && e.time ? { time: toLocal(e.time, tz), height: e.height } : null);
+  return {
+    firstHighTide: loc(pred?.firstHighTide),
+    firstLowTide: loc(pred?.firstLowTide),
+    secondHighTide: loc(pred?.secondHighTide),
+    secondLowTide: loc(pred?.secondLowTide),
+  };
+}
+
 /** 就近解析三类站点(潮汐/潮流/浮标),一次解析、后续复用 */
 async function resolveStations(lat, lng, errors) {
   const [tideStation, currentStation, buoyStation] = await Promise.all([
@@ -219,17 +230,9 @@ function buildPredict(coops, nws, tz, unitSystem) {
     };
   });
 
-  const ex = coops?.prediction || {};
-  const locEx = (e) => (e && e.time ? { time: toLocal(e.time, tz), height: e.height } : null);
-
   return {
     // 未来窗口内高低潮(时间转本地)
-    tideExtremes: {
-      firstHighTide: locEx(ex.firstHighTide),
-      firstLowTide: locEx(ex.firstLowTide),
-      secondHighTide: locEx(ex.secondHighTide),
-      secondLowTide: locEx(ex.secondLowTide),
-    },
+    tideExtremes: localizeExtremes(coops?.prediction, tz),
     hourly,
     alerts: nws?.alerts || [],
     units:
@@ -243,10 +246,11 @@ export async function getCurrentConditions(lat, lng, { name = null, note = null,
   const errors = [];
   const { tideStation, currentStation, buoyStation } = await resolveStations(lat, lng, errors);
 
-  // 各源并发(全部 current 模式 + 常驻块)
-  const [nws, coops, ndbc, astronomy, bathymetry, usgs] = await Promise.all([
+  // 各源并发。coops 拉两次:current(实测快照)+ prediction(仅为拿"下一次高低潮")
+  const [nws, coops, coopsTide, ndbc, astronomy, bathymetry, usgs] = await Promise.all([
     settle('nationalWeatherService', getNationalWeatherService(lat, lng, { mode: 'current', unitSystem }), errors),
     settle('noaaCoops', getNoaaCoops(lat, lng, { tideStation, currentStation, mode: 'current', unitSystem }), errors),
+    settle('noaaCoopsTide', getNoaaCoops(lat, lng, { tideStation, currentStation, mode: 'prediction', unitSystem }), errors),
     settle('noaaNdbc', getNoaaNdbc(lat, lng, { buoyStation, mode: 'current', unitSystem }), errors),
     settle('astronomy', getAstronomy(lat, lng, {}), errors),
     settle('noaaBathymetry', getNoaaBathymetry(lat, lng, { unitSystem }), errors),
@@ -260,6 +264,8 @@ export async function getCurrentConditions(lat, lng, { name = null, note = null,
     latitude: lat,
     longitude: lng,
     currentTime: toLocal(new Date().toISOString(), timezone), // 请求当下的钓点本地时间
+    // 下一次高低潮(即使问"现在"也附上,方便报"下一次涨潮几点、潮位多少")
+    tideExtremes: localizeExtremes(coopsTide?.prediction, timezone),
     currentTideAndWeather: buildCurrent(coops, nws, ndbc, timezone, unitSystem),
     common: buildCommon(astronomy, bathymetry, usgs, timezone),
     errors,
