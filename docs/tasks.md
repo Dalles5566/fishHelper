@@ -102,13 +102,18 @@
 
 ---
 
-## ⬜ 任务 5:工具层
-- [ ] `src/agent/tools/queryCoords.js`(按名/全部查库,返回 {name,lat,lng,note})
-- [ ] `src/agent/tools/addCoord.js`
-- [ ] `src/agent/tools/queryCurrentWeather.js`(调 `getCurrentConditions(lat,lng,{name,note})` —— "现在")
-- [ ] `src/agent/tools/predictWeather.js`(调 `getPredictConditions(lat,lng,{name,note,date})` —— "未来/等下")
-- [ ] `src/agent/tools/index.js`(注册表)
+## ✅ 任务 5:工具层
+每个 tool = `{ name, description(中文,帮 AI 判断何时调), parameters(JSON schema), execute }`。
+- [x] `src/agent/tools/queryCoords.js`(传 name 按名查、否则列全部;返回 {name,lat,lng,note})
+- [x] `src/agent/tools/addCoord.js`(upsert 钓点,按名唯一)
+- [x] `src/agent/tools/queryCurrentWeather.js`(调 `getCurrentConditions(lat,lng,{name,note,unitSystem})` —— "现在")
+- [x] `src/agent/tools/predictWeather.js`(调 `getPredictConditions(lat,lng,{name,note,date,unitSystem})` —— "未来/等下")
+- [x] `src/agent/tools/index.js`(注册表:`tools` / `toolSchemas` / `executeTool(name,args)`)
 > AI 按问题自动选 current / predict;查点名时先 queryCoords 拿坐标+name+note 再传给天气 tool。
+> 已验证:注册表加载、schema 结构、天气 tool 端到端执行(name/note 透传)、未知 tool 报错。
+> DB 两 tool 为 DB 层薄封装,连真库执行留到任务 8。
+
+**状态:已完成(待 review)**
 
 ---
 
