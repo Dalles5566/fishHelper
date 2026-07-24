@@ -63,10 +63,30 @@
 - [x] `src/services/dataSource/noaaCoops.js`：`getNoaaCoops(lat,lng,{tideStation,currentStation})` → **`NoaaCoopsObject`** —— 已实测通过(高低潮/实时水位/潮流,站点由编排层传入)
 - [x] `src/services/dataSource/noaaNdbc.js`：`getNoaaNdbc(lat,lng,{buoyStation})` → **`NoaaNdbcObject`** —— 已实测通过(解析 realtime2 文本;每字段取最近有效值 MM→null)
 - [x] `src/services/dataSource/astronomy.js`：`getAstronomy()` → **`AstronomyObject`**(suncalc,日月全套)—— 已实测通过(日出与 NWS 差 1.3 分钟,含月相/月照率)
-- [ ] `src/services/dataSource/usgsWaterData.js`：`getUsgsWaterData()` → **`UsgsWaterDataObject`**
-- [ ] `src/services/dataSource/noaaBathymetry.js`：`getNoaaBathymetry()` → **`NoaaBathymetryObject`**
+- [x] `src/services/dataSource/usgsWaterData.js`：`getUsgsWaterData()` → **`UsgsWaterDataObject`** —— 已实测通过(bbox 查+就近挑站;流量/水位/水温;-999999→null;时间 UTC)
+- [x] `src/services/dataSource/noaaBathymetry.js`：`getNoaaBathymetry()` → **`NoaaBathymetryObject`** —— 已实测通过(NCEI DEM 点水深;负高程取绝对值;陆地点识别)
 - [ ] `src/services/spotConditions.js`：`getSpotConditions()` → **`SpotConditions`**(并发合成上面 6 个)
 - [x] `package.json` 加 `suncalc` 依赖(已 npm i)
+
+**数据源已定稿:6 个全免费(NOAA/NWS/USGS + suncalc)。评估过 Stormglass(付费,10次/天太贵)
+和 Open-Meteo(免费但近岸精度有限),均不接入,保持现有写法。**
+
+---
+
+## 🔧 任务 4.5:精修 dataSource(以 noaaCoops 为模板)
+**精修基线(见 design.md「dataSource 通用约定」)**:双模式 mode(current/prediction 互斥)、
+单位 unitSystem(默认 english)、逐请求 try/catch + errors[]、UTC 时间、扁平值 + units 说明、
+站点由编排层传入。
+
+- [x] **noaaCoops** 精修定稿:双模式 + 单位(默认英制)+ errors + station.{tide,tidalCurrent}
+      + prediction{firstHigh/Low/secondHigh/Low + hourly[{time,waterLevel,speed,direction}]}
+      / current{waterLevel,waterTemp,airTemp,wind,airPressure} + 满注释
+- [ ] **nationalWeatherService** 按基线精修(current/prediction、units、errors)
+- [ ] **noaaNdbc** 精修(纯观测 → current;units、errors)
+- [ ] **astronomy** 精修(prediction 任意时间;errors)
+- [ ] **usgsWaterData** 精修(纯观测 → current;units、errors)
+- [ ] **noaaBathymetry** 精修(静态;errors)
+- [ ] (可选)抽公共 fetch/超时工具,减少重复
 
 ---
 
@@ -114,7 +134,7 @@
 1. ✅ 已创建「智能机器人」fishHelper(API 模式 / 长连接),拿到 botId + secret,已授权消息权限。
 
 ## 仍待确认(不影响先把骨架搭起来)
-2. 是否加天气缓存(省 Stormglass 额度)?
-3. 是否要代码层 userid 白名单?(可见范围已设本人)
-4. 群聊 + 私聊都支持,还是只私聊?
+2. 是否要代码层 userid 白名单?(可见范围已设本人)
+3. 群聊 + 私聊都支持,还是只私聊?
+4. 精修 dataSource 的单位标准(公制/英制/两者都留)?
 ```

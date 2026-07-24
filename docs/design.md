@@ -197,9 +197,14 @@ fishHelper/
   ```
   > 站点解析放在编排层的原因:多个地方会用到同一批站,统一解析一次即可复用,
   > dataSource 的 service 不再各自找站,只负责"用给定站号拉数据 + 映射"。
-- `noaaCoops.js`:`getNoaaCoops(lat,lng,{tideStation,currentStation})` —— 用传入的潮汐站拉
-  高低潮(predictions/hilo)+ 实时水位(water_level);潮流(currents_predictions,
-  仅 PCT 类站点有,否则 available:false)
+- `noaaCoops.js`:`getNoaaCoops(lat,lng,{tideStation,currentStation,date,mode,unitSystem})`
+  **双模式(互斥)**:
+  - `mode:'prediction'`(默认):`prediction` = { firstHighTide/firstLowTide/secondHighTide/
+    secondLowTide + hourly[{time,waterLevel,speed,direction}] },`current`=null
+  - `mode:'current'`:`current` = { time, waterLevel, waterTemp, airTemp, wind{speed,direction,
+    cardinal,gust}, airPressure }(站点实测),`prediction`=null
+  - `station: { tide, tidalCurrent }`;`unitSystem` 默认 **english**(可 metric),`units` 字段说明单位
+  - 逐子请求 try/catch,失败记入 `errors[]`(不整体崩)。潮流逐小时仅谐波站(PCT)有,否则 speed/direction=null
 - `noaaNdbc.js`:`getNoaaNdbc(lat,lng,{buoyStation})` —— 用传入浮标 → 下 realtime2 文本 →
   解析 WVHT/DPD/MWD/WTMP/VIS
 - `nationalWeatherService.js`:`points/{lat,lng}`(4 位小数)→ grid + forecastHourly;
@@ -223,6 +228,14 @@ fishHelper/
 - **展示本地化**:`SpotConditions` 顶层带 `timezone`(取自 NWS points 的 `timeZone`,
   如 `America/New_York`),由 **agent 在回复时**把 UTC 换算成钓点本地时间给用户看。
 - 原则:**内部存/传 UTC,展示才本地化**。
+
+### dataSource 通用约定(精修基线,以 noaaCoops 为模板)
+- **双模式** `mode`(适用于有实测+预测之分的源):`'prediction'`(未来预测)/ `'current'`(现在实测),
+  两者互斥(一个有值另一个 null)。纯观测源(NDBC/USGS)或纯静态(bathymetry)可只有一种。
+- **单位** `unitSystem`:默认 **`english`**(美东用户),可传 `metric`;返回对象带 `units` 说明各字段单位。
+- **容错/调试**:每个子请求单独 try/catch,失败记入 `errors[]`(`{step, product, message}`),不整体崩溃。
+- **时间** 一律 UTC(`...Z`)。数值**扁平**(不套 {value,unit}),单位集中在 `units`。
+- **站点** 由编排层解析后传入;站点类字段带 `{id,name,distanceKm}`,无则 `{available:false,reason}`。
 
 ## 5. 数据模型
 
