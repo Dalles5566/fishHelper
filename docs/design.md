@@ -220,7 +220,9 @@ fishHelper/
   - **浪从 NWS 来**:gridData 的 waveHeight/wavePeriod(时间区间制→按小时展开)合并进逐小时(未来的浪)
   - 阵风/雷暴也来自 gridData;`alerts` 活跃警报放顶层;`marineZone` = forecastZone id
   - `unitSystem` 默认 english(forecastHourly units=us/si;gridData 恒 SI,英制时换算);逐请求 errors[]
-- `astronomy.js`:`suncalc` 本地算日/月(无网络,不用站)
+- `astronomy.js`:`getAstronomy(lat,lng,{date})` —— `suncalc` 本地算(无网络、不用站、任意时间)。
+  纯计算源:无 mode、无单位制之分。字段:sunrise/sunset/moonrise/moonset(UTC)、
+  moonPhase{value,name,nameZh}、moonIllumination(%,扁平)。三次调用各自 try/catch→errors[]
 - `usgsWaterData.js`:bbox 查附近站 → 用 `nearest()` 挑最近 → iv 接口(00060/00065/00010)
 - `noaaBathymetry.js`:NCEI DEM identify 直接按坐标 → 点水深(不用站)
 - `stations.js`:haversine + 站点列表(带缓存);由 `spotConditions.js` 在编排层调用
