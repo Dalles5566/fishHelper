@@ -36,12 +36,16 @@
 
 ---
 
-## ⬜ 任务 3:企业微信机器人层(重写)
-- [ ] `src/wecom/bot.js`
-  - `new AiBot.WSClient({ botId, secret })`
-  - 事件:`authenticated` / `event.enter_chat`(欢迎语) / `message.text`
-  - `message.text`:流式回复("正在查询..." → agent 结果 → finish)
-  - 导出 `startBot()`
+## ✅ 任务 3:企业微信机器人层
+- [x] `src/wecom/bot.js`
+  - `new WSClient({ botId, secret })`,`connect()` 自动认证
+  - 生命周期事件:`connected`/`authenticated`/`disconnected`/`reconnecting`/`error`
+  - `event.enter_chat`:`replyWelcome` 发欢迎语
+  - `message.text`:流式回复("正在查询…" → onMessage 结果 → finish),全程 try/catch
+  - 通过注入 `onMessage` 与 agent 解耦,导出 `startBot({ onMessage })`
+  - 已核对 SDK 类型:`frame.body.text.content` / `frame.body.from.userid`,回复走 SDK 方法不手写 JSON
+
+**状态:已完成(待 npm install 后连真机验证 frame)**
 
 ---
 

@@ -1,0 +1,77 @@
+// 企业微信智能机器人层：封装 @wecom/aibot-node-sdk 的 WebSocket 长连接
+// 只负责传输：建连、事件监听、流式回复。业务处理通过注入的 onMessage 解耦。
+import { WSClient, generateReqId } from '@wecom/aibot-node-sdk';
+import { config } from '../config.js';
+
+const WELCOME_TEXT = '您好！我是钓鱼助手 🎣 告诉我钓点名字，我帮你查风向、风速和涨退潮时间；也可以让我保存新的钓点坐标。';
+const THINKING_TEXT = '正在查询，请稍候…';
+const ERROR_TEXT = '抱歉，处理时出错了，请稍后再试。';
+
+/**
+ * 创建并启动机器人。
+ * @param {object} handlers
+ * @param {(input: { text: string, userId: string, frame: object }) => Promise<string>} handlers.onMessage
+ *        收到文本消息时调用，返回要回复的最终文本。
+ * @returns {WSClient}
+ */
+export function startBot({ onMessage } = {}) {
+  if (typeof onMessage !== 'function') {
+    throw new Error('startBot 需要传入 onMessage 处理函数');
+  }
+
+  const client = new WSClient({
+    botId: config.wecom.botId,
+    secret: config.wecom.botSecret,
+  });
+
+  // ---- 连接生命周期日志 ----
+  client.on('connected', () => console.log('[bot] WebSocket 已连接'));
+  client.on('authenticated', () => console.log('[bot] 认证成功，机器人已上线'));
+  client.on('disconnected', (reason) => console.warn(`[bot] 连接断开: ${reason}`));
+  client.on('reconnecting', (attempt) => console.warn(`[bot] 正在第 ${attempt} 次重连…`));
+  client.on('error', (err) => console.error('[bot] 错误:', err?.message || err));
+
+  // ---- 进入会话：发欢迎语（需 5s 内回复）----
+  client.on('event.enter_chat', (frame) => {
+    client
+      .replyWelcome(frame, { msgtype: 'text', text: { content: WELCOME_TEXT } })
+      .catch((err) => console.error('[bot] 欢迎语发送失败:', err?.message || err));
+  });
+
+  // ---- 文本消息：流式回复 ----
+  client.on('message.text', async (frame) => {
+    const text = frame?.body?.text?.content?.trim() || '';
+    const userId = frame?.body?.from?.userid || '';
+    console.log(`[bot] 收到来自 ${userId} 的消息: ${text}`);
+
+    if (!text) return;
+
+    const streamId = generateReqId('stream');
+    // 先发一条“正在查询”，让用户知道已收到（不结束流）
+    try {
+      await client.replyStream(frame, streamId, THINKING_TEXT, false);
+    } catch (err) {
+      console.error('[bot] 首次流式回复失败:', err?.message || err);
+    }
+
+    // 调业务处理，拿最终结果
+    let reply;
+    try {
+      reply = await onMessage({ text, userId, frame });
+    } catch (err) {
+      console.error('[bot] onMessage 处理异常:', err?.message || err);
+      reply = ERROR_TEXT;
+    }
+
+    const finalText = (reply && String(reply).trim()) || ERROR_TEXT;
+    try {
+      // finish=true 结束这条流式消息
+      await client.replyStream(frame, streamId, finalText, true);
+    } catch (err) {
+      console.error('[bot] 最终流式回复失败:', err?.message || err);
+    }
+  });
+
+  client.connect();
+  return client;
+}
