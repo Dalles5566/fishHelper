@@ -277,7 +277,8 @@ export async function getCurrentConditions(lat, lng, { name = null, note = null,
 // ----------------------------------------------------------------------------
 export async function getPredictConditions(lat, lng, { name = null, note = null, date, unitSystem = 'english' } = {}) {
   const errors = [];
-  const { tideStation, currentStation, buoyStation } = await resolveStations(lat, lng, errors);
+  // 预测不用浮标(NDBC 无预报),只取潮汐/潮流站
+  const { tideStation, currentStation } = await resolveStations(lat, lng, errors);
 
   // 预测源(coops 潮 + nws 天气)并发 + 常驻块
   const [nws, coops, astronomy, bathymetry, usgs] = await Promise.all([
