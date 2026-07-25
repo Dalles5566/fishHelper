@@ -30,10 +30,11 @@ const SYSTEM_PROMPT = `你是"钓鱼助手"的调度器,用户在美国东部(RI
 
 【规范】时间已是钓点当地时间,直接用;任何数值只用工具返回的,绝不编造;缺失就说"无数据"。`;
 
-/** 最终文本兜底:空则给个提示 */
-function finalizeText(text) {
+/** 最终文本兜底:空则按语言给个提示 */
+function finalizeText(text, lang = 'zh') {
   const t = (text || '').trim();
-  return t || '我这边没查到有用的信息。';
+  if (t) return t;
+  return lang === 'en' ? "Sorry, I couldn't find any useful info." : '抱歉,没查到有用的信息。';
 }
 
 /** 会产出 spotConditions 的天气工具 */
@@ -51,12 +52,12 @@ function safeName(s) {
  * 没调天气工具(纯查/存坐标)→ 只回建议、无附件。
  * @returns {{ text: string, files: {filename:string, content:string}[] }}
  */
-function buildOutput(finalText, weatherResults) {
-  const suggestion = finalizeText(finalText);
+function buildOutput(finalText, weatherResults, lang = 'zh') {
+  const suggestion = finalizeText(finalText, lang);
   const files = weatherResults.map((r) => {
     const label = r.name || `${r.latitude},${r.longitude}`;
     const stamp = r.date || (r.currentTime ? r.currentTime.slice(0, 10) : '');
-    return { filename: `海况_${safeName(label)}_${stamp}.txt`, content: JSON.stringify(r, null, 2) };
+    return { filename: `${safeName(label)}_${stamp}.txt`, content: JSON.stringify(r, null, 2) };
   });
   return { text: suggestion, files };
 }
@@ -68,8 +69,8 @@ function buildOutput(finalText, weatherResults) {
  * @returns {Promise<{text:string, files:{filename:string,content:string}[]}>}
  *   text = 内联数据(现在)+【大哥的建议】;files = 预测的完整 JSON(.txt 附件)
  */
-/** 当前"钓点所在时区(美东)"的日期时间,注入给模型解析"今天/明天"等相对日期 */
-function nowContext() {
+/** 当前"钓点所在时区(美东)"的日期时间,注入给模型解析"今天/明天"等相对日期(按语言) */
+function nowContext(lang = 'zh') {
   const tz = 'America/New_York';
   const p = new Intl.DateTimeFormat('en-CA', {
     timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
@@ -78,24 +79,31 @@ function nowContext() {
     .formatToParts(new Date())
     .reduce((a, x) => ((a[x.type] = x.value), a), {});
   const dateStr = `${p.year}-${p.month}-${p.day}`;
+  if (lang === 'en') {
+    return (
+      `[Current time] ${dateStr} (${p.weekday}) ${p.hour}:${p.minute} US Eastern (${tz}).\n` +
+      `When the user says today/tomorrow/this weekend etc., convert it to an absolute date ` +
+      `YYYY-MM-DD and pass it as the date param to analyzeFishing/getPredictWeather. Never guess the date.`
+    );
+  }
   return (
     `【当前时间】${dateStr}(${p.weekday}) ${p.hour}:${p.minute} 美东时间(${tz})。\n` +
     `用户说"今天/明天/后天/这周末"等相对日期时,先据此换算成绝对日期 YYYY-MM-DD,` +
-    `再作为 date 参数传给 getPredictWeather。绝不要凭空猜日期。`
+    `再作为 date 参数传给 analyzeFishing/getPredictWeather。绝不要凭空猜日期。`
   );
 }
 
 export async function runAgent(userText, { history = [], isAdmin = false } = {}) {
   const client = getClient();
+  // 检测提问语言(含中文字符→zh,否则 en):贯穿 prompt、兜底文案、工具回复语言
+  const lang = /[\u4e00-\u9fff]/.test(String(userText ?? '')) ? 'zh' : 'en';
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'system', content: nowContext() },
+    { role: 'system', content: nowContext(lang) },
     ...history,
     { role: 'user', content: String(userText ?? '').trim() },
   ];
 
-  // 检测提问语言(含中文字符→zh,否则 en),透传给工具(analyzeFishing 用它决定回复语言)
-  const lang = /[\u4e00-\u9fff]/.test(String(userText ?? '')) ? 'zh' : 'en';
   const toolSchemas = toolSchemasFor(isAdmin); // 非管理员看不到 adminOnly 工具
   const weatherResults = []; // 天气工具的原始 spotConditions,用于原样展示 JSON
   let finalText = null;
@@ -110,7 +118,7 @@ export async function runAgent(userText, { history = [], isAdmin = false } = {})
 
     const msg = completion.choices?.[0]?.message;
     if (!msg) {
-      finalText = '模型没有返回内容,稍后再试试。';
+      finalText = lang === 'en' ? 'The model returned nothing, please try again later.' : '模型没有返回内容,稍后再试试。';
       break;
     }
 
@@ -155,16 +163,20 @@ export async function runAgent(userText, { history = [], isAdmin = false } = {})
     }
   }
 
-  // 轮数用尽仍未收敛:让模型基于已有工具结果做一次不带工具的总结
+  // 轮数用尽仍未收敛:让模型基于已有工具结果做一次不带工具的总结(语言跟随用户)
   if (finalText === null) {
+    const summaryAsk =
+      lang === 'en'
+        ? 'Based on the above, give the final reply directly (do not call any more tools).'
+        : '请基于以上信息直接给出最终回复(不要再调用工具)。';
     const finalCompletion = await client.chat.completions.create({
       model: config.openai.model,
-      messages: [...messages, { role: 'user', content: '请基于以上信息直接给出最终中文回复(不要再调用工具)。' }],
+      messages: [...messages, { role: 'user', content: summaryAsk }],
     });
     finalText = finalCompletion.choices?.[0]?.message?.content;
   }
 
-  return buildOutput(finalText, weatherResults);
+  return buildOutput(finalText, weatherResults, lang);
 }
 
 export default runAgent;
