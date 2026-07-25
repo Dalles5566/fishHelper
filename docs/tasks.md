@@ -169,9 +169,15 @@
       - secrets:DEPLOY_SSH_KEY / DEPLOY_HOST / DEPLOY_USER / DEPLOY_KNOWN_HOSTS(专用 CI→服务器密钥)
       - Dockerfile 保持单阶段(纯 JS,无需像 feishu 那样编译 TS)
       - 服务器不存长期 GitHub 凭据;`paths-ignore` 让纯文档改动不触发部署
-- [ ] 企业微信真机发消息端到端确认(附件 + 建议)
+- [x] 镜像内嵌 git commit(`GIT_SHA`),启动打印 `commit=...`,可核对线上版本
+- [x] 部署通知:启动认证成功后主动推一条"已更新 + commit + 时间"到 `DEPLOY_NOTIFY_CHATID`(单聊=userid)
+      —— 收到即证明最新代码已上线,不用 SSH 看日志。
+      ⚠️ 企业微信**主动发送**(`sendMessage`)只支持 markdown/模板卡片/媒体,**无纯 text**(text 会报 40008);
+         被动回复才有 text/stream。部署通知用 markdown。
+- [x] 真机被动回复已验证("Hello" 收发正常);userid=liudallasbinglin
 
-**状态:已部署上线 + CI/CD 打通;待真机发消息确认**
+**状态:全链路上线 + CI/CD + 版本可验证 + 部署通知均已实测通过**
+待办(可选):真机再测"钓点问题→txt 附件+建议";每日定时主动推送海况。
 
 ---
 
