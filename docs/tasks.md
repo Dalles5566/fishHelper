@@ -162,10 +162,13 @@
 - [x] 已部署到服务器 67.205.150.67(root),与现有 feishuhelper 栈隔离:
       - app 无宿主机端口;db 绑 `127.0.0.1:5433`(避开被占用的 5432,不暴露公网)
       - 独立数据卷 `fishhelper_fishhelper_pgdata`;种子 5 钓点已入库;机器人认证上线
-- [x] GitHub Actions 自动部署 `.github/workflows/deploy.yml`:
-      push main → rsync 代码到服务器(保留服务器 .env)→ `docker compose up -d --build` → 健康检查
+- [x] GitHub Actions 自动部署 `.github/workflows/deploy.yml`(**GHCR 镜像方案**,与 feishuHelper 一致):
+      push main → Actions 构建镜像 + 推 `ghcr.io/dalles5566/fishhelper`(latest + commit SHA)
+      → 服务器 `docker login ghcr.io`(用临时 GITHUB_TOKEN)+ `docker compose pull` + `up -d` → 健康检查
+      - compose 用 `image:`(非 `build:`);服务器不本地构建、只拉镜像
       - secrets:DEPLOY_SSH_KEY / DEPLOY_HOST / DEPLOY_USER / DEPLOY_KNOWN_HOSTS(专用 CI→服务器密钥)
-      - 服务器不存 GitHub 凭据;`paths-ignore` 让纯文档改动不触发部署
+      - Dockerfile 保持单阶段(纯 JS,无需像 feishu 那样编译 TS)
+      - 服务器不存长期 GitHub 凭据;`paths-ignore` 让纯文档改动不触发部署
 - [ ] 企业微信真机发消息端到端确认(附件 + 建议)
 
 **状态:已部署上线 + CI/CD 打通;待真机发消息确认**
