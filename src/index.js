@@ -6,6 +6,7 @@
 // ============================================================================
 import { assertConfig, config } from './config.js';
 import { startBot } from './wecom/bot.js';
+import { startTelegram } from './telegram/bot.js';
 import { runAgent } from './agent/agentCore.js';
 import { pool } from './db/pool.js';
 
@@ -18,14 +19,20 @@ function main() {
     process.exit(1);
   }
 
-  // 收到用户文本 → 交给 agent 处理,返回最终回复(bot 层负责流式发送)
+  // 共用的消息处理:任何传输层收到文本都走这里 → agent → { text, files }
+  const onMessage = async ({ text, userId }) => {
+    console.log(`[agent] 处理 ${userId}: ${text}`);
+    return runAgent(text);
+  };
+
+  // 传输层一:企业微信智能机器人(WS 长连接)
   const client = startBot({
     notifyChatId: config.notify.chatId, // 启动上线后给这个 chatId 推部署通知
-    onMessage: async ({ text, userId }) => {
-      console.log(`[agent] 处理 ${userId}: ${text}`);
-      return runAgent(text);
-    },
+    onMessage,
   });
+
+  // 传输层二:Telegram(可选,配了 TELEGRAM_BOT_TOKEN 才启用)
+  const telegram = startTelegram({ onMessage });
 
   console.log(`[fishHelper] 已启动,等待消息…(commit=${process.env.GIT_SHA || 'dev'})`);
 
@@ -39,6 +46,7 @@ function main() {
       // SDK 可能提供 disconnect / close,存在才调
       if (typeof client?.disconnect === 'function') client.disconnect();
       else if (typeof client?.close === 'function') client.close();
+      telegram?.stop();
     } catch (err) {
       console.error('[fishHelper] 断开连接出错:', err?.message || err);
     }

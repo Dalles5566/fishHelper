@@ -49,6 +49,11 @@ export const config = {
     baseURL: process.env.OPENAI_BASE_URL || undefined,
   },
 
+  // Telegram 传输(可选):配了 token 才启用,与企业微信并存
+  telegram: {
+    token: process.env.TELEGRAM_BOT_TOKEN || '',
+  },
+
   // 部署通知:app 启动上线后主动给这个 chatId(单聊=userid)推一条"已更新"消息
   notify: {
     chatId: process.env.DEPLOY_NOTIFY_CHATID || '',
