@@ -1,0 +1,50 @@
+name: Deploy
+
+# push 到 main 自动部署;也可在 Actions 页面手动触发
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一时间只跑一个部署,新的把旧的顶掉
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 配置 SSH(CI → 服务器)
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+
+      - name: 同步代码到服务器(保留服务器上的 .env)
+        run: |
+          rsync -az --delete \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude '.env' \
+            --exclude 'tmp.mjs' \
+            --exclude '.DS_Store' \
+            -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
+            ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/root/fishHelper/"
+
+      - name: 重建并重启容器
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            'cd /root/fishHelper && docker compose up -d --build && docker image prune -f'
+
+      - name: 部署后健康检查(确认机器人认证上线)
+        run: |
+          sleep 8
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            'cd /root/fishHelper && docker compose ps && docker compose logs app --tail 15'
