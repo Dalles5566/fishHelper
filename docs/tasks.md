@@ -177,7 +177,19 @@
 - [x] 真机被动回复已验证("Hello" 收发正常);userid=liudallasbinglin
 
 **状态:全链路上线 + CI/CD + 版本可验证 + 部署通知均已实测通过**
-待办(可选):真机再测"钓点问题→txt 附件+建议";每日定时主动推送海况。
+
+---
+
+## ✅ 任务 10:第二传输层 Telegram(已上线)
+- [x] `src/telegram/bot.js`:long polling(getUpdates,无需公网 URL/域名/备案),原生 fetch 无新依赖
+      - 收文本 → 共用 `onMessage → runAgent` → `sendDocument` 发 .txt 附件 + `sendMessage` 发建议
+      - 与企业微信并存(index.js 同时起两个传输,共用一个大脑);token 未配则自动跳过
+- [x] 白名单 `TELEGRAM_ALLOWED`(用户名或数字 id,不区分大小写;留空=开放);非白名单礼貌拒绝并回显其 id
+- [x] 已部署:bot @DragonBaSkyFishHelp_bot 上线,真机收发 + 附件已验证;白名单当前=dragonbasky
+- [x] 模型升级:`OPENAI_MODEL=gpt-5.4`(纯 env,gpt-4o-mini→gpt-5.4,已实测更稳)
+- 决策:个人微信不做(微信客服需公网HTTPS+ICP备案,美国用户无法满足;逆向方案封号风险)→ 用 Telegram 替代
+
+**状态:企业微信 + Telegram 双入口均上线;可选下一步:每日定时主动推送、Telegram 部署通知**
 
 ---
 

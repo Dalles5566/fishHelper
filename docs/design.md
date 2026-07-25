@@ -9,18 +9,21 @@ LLM agent 分析意图,自动调用工具(查/存钓点坐标、查某坐标的�
 核心价值不是"报天气",而是**判断鱼口**:综合潮汐/潮流窗口、日月(solunar)、
 水温、风、水深等变量,帮用户判断某个钓点**何时、好不好钓**。以后可扩展更多工具。
 
-## 2. 整体架构(WebSocket 长连接方案)
+## 2. 整体架构(多传输层 + 单一大脑)
+
+**两个入口(传输层)并存,共用同一个 AgentCore 大脑;都是"只出不进",无需公网 URL/域名/备案:**
 
 ```
-个人微信/群聊  ⇄  企业微信智能机器人(AI Bot)
-                        ⇕  WebSocket 长连接
-                        ⇕  wss://openws.work.weixin.qq.com
-                        ⇕  自动认证 (botId + secret)
+企业微信(智能机器人)          Telegram(个人/朋友,可选)
+  ⇕ WebSocket 长连接             ⇕ long polling(getUpdates)
+  ⇕ wss://openws.work.weixin…    ⇕ api.telegram.org
+  ⇕ botId + secret               ⇕ Bot token(+ 白名单 TELEGRAM_ALLOWED)
+        └───────────────┬───────────────┘
+                        ▼  统一 onMessage → { text, files }
                   ┌─────────────────────────────┐
                   │  fishHelper (Node 常驻进程)   │
-                  │  @wecom/aibot-node-sdk        │
+                  │  wecom/bot.js + telegram/bot.js│
                   └─────────────────────────────┘
-                        │  on('message.text')
                         ▼
                   AgentCore (OpenAI function-calling)
                         │
@@ -38,10 +41,12 @@ LLM agent 分析意图,自动调用工具(查/存钓点坐标、查某坐标的�
  └────────┴────────┴────────┴───────────┴────────┴────────────┘
       │  "挑选 + 重组"（curation，非原样堆叠）
       ▼
-                  AgentCore 整理
-                        │  replyStream(流式)
+                  AgentCore → { text, files }
+                        │  各传输层各自渲染:
+                        │   企业微信:uploadMedia+replyMedia 发 .txt + replyStream 文字
+                        │   Telegram:sendDocument 发 .txt + sendMessage 文字
                         ▼
-个人微信/群聊  ⇄  企业微信智能机器人
+             回到对应入口(企业微信 / Telegram)
 ```
 
 ### 关键设计决策
@@ -58,6 +63,17 @@ LLM agent 分析意图,自动调用工具(查/存钓点坐标、查某坐标的�
 3. **无需公网 / 无需 Express / 无需回调 URL / 无需 AES 自解密。**
    程序是一个常驻的 WebSocket 客户端,主动外连,不监听入站端口。
    (文件消息的 AES 解密由 SDK 的 `downloadFile` 内部处理,我们起步不用。)
+
+3b. **多传输层,单一大脑。** 传输与业务解耦:`wecom/bot.js`(企业微信长连接)和
+   `telegram/bot.js`(Telegram long polling)都调同一个 `onMessage → runAgent`,
+   返回 `{ text, files }` 后各自渲染。两者都是"只出不进",都不需要公网 URL/域名/备案。
+   - **Telegram**:`TELEGRAM_BOT_TOKEN` 配了才启用;`TELEGRAM_ALLOWED` 做用户名/ID 白名单(留空=开放)。
+     解决"不想用企业微信 App"的诉求;个人微信因无官方 API + 需备案,不走(见下)。
+   - **为何不用个人微信**:微信客服需公网 HTTPS 回调 + 大概率 ICP 备案(美国用户无法满足);
+     个人微信无官方 bot API,逆向方案有封号风险。Telegram 是合规且零基建的替代。
+
+3c. **部署通知**:app 启动认证成功后,主动给 `DEPLOY_NOTIFY_CHATID` 推一条"已更新+commit",
+   收到即证明最新代码上线(企业微信主动发只支持 markdown,不支持纯 text)。
 
 4. **流式回复。**
    收到消息先 `replyStream(frame, streamId, '正在查询...', false)`,
@@ -105,7 +121,9 @@ fishHelper/
     │   ├── init.js           # 建表脚本 (npm run db:init)
     │   └── coordinates.js    # 坐标数据访问 (list/find/add)
     ├── wecom/
-    │   └── bot.js            # 封装 @wecom/aibot-node-sdk 的 WSClient 与事件
+    │   └── bot.js            # 企业微信传输:@wecom/aibot-node-sdk WSClient;含部署通知
+    ├── telegram/
+    │   └── bot.js            # Telegram 传输:long polling + 白名单;sendDocument 发附件
     ├── agent/
     │   ├── agentCore.js      # OpenAI function-calling 主循环
     │   └── tools/
