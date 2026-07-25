@@ -15,7 +15,8 @@ const MAX_ROUNDS = 6; // 一次问答里最多几轮"模型↔工具",防止无�
 
 // agentCore 只做"路由 + 转述";钓鱼判断的逻辑在 analyzeFishing 工具里。
 const SYSTEM_PROMPT = `你是"钓鱼助手"的调度器,用户在美国东部(RI/MA/NH 一带)。
-你的职责:理解用户意图 → 调用合适的工具 → 把结果如实转达给用户。中文口语。
+你的职责:理解用户意图 → 调用合适的工具 → 把结果如实转达给用户。
+【语言】回复语言与用户提问一致:用户用中文就用中文,用英文就用英文(其他语言同理)。
 
 【工具与选择】
 - getCoordinateByName:把钓点名/备注(如"军校""基佬村"或名字的一部分)解析成坐标(+备注 note)。
@@ -93,6 +94,8 @@ export async function runAgent(userText, { history = [], isAdmin = false } = {})
     { role: 'user', content: String(userText ?? '').trim() },
   ];
 
+  // 检测提问语言(含中文字符→zh,否则 en),透传给工具(analyzeFishing 用它决定回复语言)
+  const lang = /[\u4e00-\u9fff]/.test(String(userText ?? '')) ? 'zh' : 'en';
   const toolSchemas = toolSchemasFor(isAdmin); // 非管理员看不到 adminOnly 工具
   const weatherResults = []; // 天气工具的原始 spotConditions,用于原样展示 JSON
   let finalText = null;
@@ -125,7 +128,7 @@ export async function runAgent(userText, { history = [], isAdmin = false } = {})
       let result;
       try {
         const args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
-        result = await executeTool(name, args, { isAdmin });
+        result = await executeTool(name, args, { isAdmin, lang });
       } catch (err) {
         result = { error: true, tool: name, message: err.message };
       }

@@ -25,7 +25,7 @@ const FISHING_PROMPT = `你是资深海钓向导。根据给你的 spotCondition
 - 下一次高低潮 → tideExtremes(现在在顶层,预测在 predictTideAndWeather.tideExtremes);
 - 风/气温/天气 → currentTideAndWeather(现在)或 hourly(预测)。
 - 某项是 null 或没有,就写"无数据",绝不猜。
-时间已是钓点当地时间(带偏移),直接说几点几分。单位英制(ft/节/°F)。中文口语、简洁。`;
+时间已是钓点当地时间(带偏移),直接说几点几分。单位英制(ft/节/°F)。口语、简洁。`;
 
 export default {
   name: 'analyzeFishing',
@@ -51,16 +51,22 @@ export default {
     required: ['latitude', 'longitude'],
     additionalProperties: false,
   },
-  async execute({ latitude, longitude, name, note, mode, date, unitSystem } = {}) {
+  async execute({ latitude, longitude, name, note, mode, date, unitSystem } = {}, context = {}) {
     const predict = mode === 'prediction' || !!date;
     const conditions = predict
       ? await getPredictConditions(latitude, longitude, { name, note, date, unitSystem })
       : await getCurrentConditions(latitude, longitude, { name, note, unitSystem });
 
+    // 回复语言跟随用户提问(由 agentCore 检测后透传)
+    const langLine =
+      context.lang === 'en'
+        ? '【Language】Reply ENTIRELY in English, including the 6 highlight labels.'
+        : '【语言】整段回复(含 6 项小标题)一律用中文。';
+
     const completion = await getClient().chat.completions.create({
       model: config.openai.model,
       messages: [
-        { role: 'system', content: FISHING_PROMPT },
+        { role: 'system', content: `${FISHING_PROMPT}\n${langLine}` },
         { role: 'user', content: '这是钓点海况数据:\n' + JSON.stringify(conditions) },
       ],
     });

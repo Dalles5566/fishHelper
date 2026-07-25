@@ -39,5 +39,5 @@ export async function executeTool(name, args = {}, context = {}) {
   if (tool.adminOnly && !context.isAdmin) {
     return { error: true, tool: name, message: '仅管理员可添加/修改钓点,普通用户无此权限' };
   }
-  return tool.execute(args);
+  return tool.execute(args, context);
 }
