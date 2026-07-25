@@ -21,7 +21,7 @@ const FISHING_PROMPT = `You are an experienced saltwater fishing guide. Based on
 Then, in a new paragraph, give the verdict: weigh the tide window (rising/falling/slack), sun & moon (dawn/dusk, moon phase / spring tide), wind, water temp, and depth; say whether it's good to fish and when the best window is. Tide turns, dawn/dusk, and spring tides are usually better; strong wind or thunderstorms are bad.
 
 [Data discipline - strict] Every number must come VERBATIM from the JSON; never invent/estimate:
-- current time -> top-level currentTime; sunrise/sunset/moon -> common; water temp -> currentTideAndWeather.waterTemp (prediction has none -> "no data");
+- current time -> top-level currentTime; sunrise/sunset/moonrise/moonset -> common; moon phase -> common.moonPhase (use its name; full/new moon ~ spring tide) and common.moonIllumination; water temp -> currentTideAndWeather.waterTemp (prediction has none -> "no data");
 - next high/low tide -> tideExtremes (current: top-level; prediction: predictTideAndWeather.tideExtremes);
 - wind/air temp/weather -> currentTideAndWeather (now) or hourly (prediction).
 - If a value is null or absent, write "no data" - never guess.

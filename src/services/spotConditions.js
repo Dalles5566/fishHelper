@@ -19,7 +19,7 @@
 // 时区/单位不在顶层输出:时间已带本地偏移(如 -04:00),各块自带 units。
 //
 // 【common(常驻块,两个入口共用)】astronomy / bathymetry / usgs 挑出的字段**扁平**放一起:
-//     astronomy → sunrise/sunset/moonrise/moonset/moonIllumination
+//     astronomy → sunrise/sunset/moonrise/moonset/moonPhase/moonIllumination
 //     bathymetry → locationDepth
 //     usgs → riverDischarge/gaugeHeight/riverTemperature
 // 【时间】各数据源层用 UTC,本层统一用 toLocal() 转成钓点本地时。
@@ -81,6 +81,7 @@ function buildCommon(astronomy, bathymetry, usgs, tz) {
     sunset: toLocal(astronomy?.sunset, tz),
     moonrise: toLocal(astronomy?.moonrise, tz),
     moonset: toLocal(astronomy?.moonset, tz),
+    moonPhase: astronomy?.moonPhase ?? null, // { value(0..1), name(英), nameZh(中) };满月/新月≈大潮
     moonIllumination: astronomy?.moonIllumination ?? null, // 月照率 %(满月→大潮、鱼口活跃;非能见度)
 
     // ── 水深(NOAA NCEI DEM)──
