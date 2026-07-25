@@ -309,7 +309,8 @@ export async function getPredictConditions(lat, lng, { name = null, note = null,
 
   // 预测源(coops 潮 + nws 天气)并发 + 常驻块
   const [nws, coops, astronomy, bathymetry, usgs] = await Promise.all([
-    settle('nationalWeatherService', getNationalWeatherService(lat, lng, { mode: 'prediction', unitSystem }), errors),
+    // 未来某天:nws 逐小时过滤到目标本地日期整天;今天/未指定:从现在起滚动窗口
+    settle('nationalWeatherService', getNationalWeatherService(lat, lng, { mode: 'prediction', unitSystem, date: isFutureDay ? date : undefined }), errors),
     settle('noaaCoops', getNoaaCoops(lat, lng, { tideStation, currentStation, date: coopsDate, hours: coopsHours, mode: 'prediction', unitSystem }), errors),
     settle('astronomy', getAstronomy(lat, lng, { date }), errors),
     settle('noaaBathymetry', getNoaaBathymetry(lat, lng, { unitSystem }), errors),

@@ -118,7 +118,7 @@ const MARINE_EVENT_RE = /marine|small craft|hazardous seas|gale|storm warning|ri
 export async function getNationalWeatherService(
   lat,
   lng,
-  { mode = 'prediction', unitSystem = 'english', hours = DEFAULT_HOURS } = {}
+  { mode = 'prediction', unitSystem = 'english', hours = DEFAULT_HOURS, date = null } = {}
 ) {
   const source = 'NWS';
   const errors = [];
@@ -207,8 +207,17 @@ export async function getNationalWeatherService(
           }) || periods[0];
         result.current = cur ? buildEntry(cur) : null;
       } else {
-        // 预测模式:未来 hours 条逐小时
-        result.prediction = { hourly: periods.slice(0, hours).map(buildEntry) };
+        // 预测模式:
+        //   date 指定(未来某天)→ 过滤到该【本地日期】的整天(startTime 带本地偏移,slice(0,10)=本地日期)
+        //   未指定(今天/现在)→ 从现在起 hours 条(滚动窗口)
+        let sel;
+        if (date) {
+          sel = periods.filter((it) => typeof it.startTime === 'string' && it.startTime.slice(0, 10) === date);
+          if (!sel.length) sel = periods.slice(0, hours); // 兜底:该日期无匹配(如超出预报范围)
+        } else {
+          sel = periods.slice(0, hours);
+        }
+        result.prediction = { hourly: sel.map(buildEntry) };
       }
     } catch (err) {
       errors.push({ step: 'build-hourly', message: err.message });
