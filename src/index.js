@@ -26,7 +26,7 @@ function main() {
     },
   });
 
-  console.log('[fishHelper] 已启动,等待消息…');
+  console.log(`[fishHelper] 已启动,等待消息…(commit=${process.env.GIT_SHA || 'dev'})`);
 
   // ---- 优雅退出:断开连接、关连接池,只执行一次 ----
   let shuttingDown = false;

@@ -39,6 +39,8 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           tags: |
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ github.sha }}
@@ -64,9 +66,10 @@ jobs:
              echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u ${{ github.actor }} --password-stdin && \
              docker compose pull && docker compose up -d && docker image prune -f"
 
-      - name: 部署后健康检查
+      - name: 部署后健康检查(确认跑的是本次 commit)
         run: |
           sleep 8
+          echo "本次部署 commit: ${{ github.sha }}"
           ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
             "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
-            'cd /root/fishHelper && docker compose ps && docker compose logs app --tail 15'
+            'cd /root/fishHelper && docker compose ps && docker compose logs app --tail 15 | grep -E "commit=|上线|Authenticated"'

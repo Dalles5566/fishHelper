@@ -13,5 +13,9 @@ COPY src ./src
 # 生产环境
 ENV NODE_ENV=production
 
+# 构建时注入的 git commit(用于确认线上跑的是哪份代码)
+ARG GIT_SHA=dev
+ENV GIT_SHA=$GIT_SHA
+
 # 入口:启动前先建表/灌种子(幂等),再起常驻进程
 CMD ["sh", "-c", "node src/db/init.js && node src/index.js"]
