@@ -28,7 +28,7 @@ services:
       retries: 10
 
   app:
-    build: .
+    image: ghcr.io/dalles5566/fishhelper:latest
     container_name: fishhelper-app
     restart: unless-stopped
     depends_on:

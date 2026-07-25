@@ -1,6 +1,6 @@
 name: Deploy
 
-# push 到 main 自动部署;也可在 Actions 页面手动触发
+# push 到 main 自动:构建镜像 → 推 GHCR → 服务器拉镜像重启
 on:
   push:
     branches: [main]
@@ -9,18 +9,41 @@ on:
       - '**.md'
   workflow_dispatch:
 
-# 同一时间只跑一个部署,新的把旧的顶掉
 concurrency:
   group: deploy-production
   cancel-in-progress: true
 
+env:
+  IMAGE: ghcr.io/dalles5566/fishhelper # GHCR 镜像名(必须全小写)
+
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # 允许推 GHCR
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ---- 1. 构建镜像并推到 GHCR ----
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 构建并推送镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+
+      # ---- 2. 部署到服务器(只拉镜像,不在服务器构建)----
       - name: 配置 SSH(CI → 服务器)
         run: |
           mkdir -p ~/.ssh
@@ -28,24 +51,20 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
 
-      - name: 同步代码到服务器(保留服务器上的 .env)
+      - name: 同步 docker-compose.yml 到服务器
         run: |
-          rsync -az --delete \
-            --exclude '.git' \
-            --exclude 'node_modules' \
-            --exclude '.env' \
-            --exclude 'tmp.mjs' \
-            --exclude '.DS_Store' \
-            -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
-            ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/root/fishHelper/"
+          scp -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes docker-compose.yml \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/root/fishHelper/docker-compose.yml"
 
-      - name: 重建并重启容器
+      - name: 服务器登录 GHCR + 拉镜像 + 重启
         run: |
           ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
             "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
-            'cd /root/fishHelper && docker compose up -d --build && docker image prune -f'
+            "cd /root/fishHelper && \
+             echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u ${{ github.actor }} --password-stdin && \
+             docker compose pull && docker compose up -d && docker image prune -f"
 
-      - name: 部署后健康检查(确认机器人认证上线)
+      - name: 部署后健康检查
         run: |
           sleep 8
           ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
