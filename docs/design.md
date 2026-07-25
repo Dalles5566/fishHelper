@@ -187,15 +187,20 @@ fishHelper/
   - **回复格式**:`runAgent` 返回 `{ text, files }`。
     - 天气结果(**current 和 predict 一律**)→ 完整 spotConditions JSON 做成 **`.txt` 附件**(files),
       避免企业微信长文本流式接收缓慢、且格式稳定(不随模型 current/predict 路由波动)。
-    - text = agent 基于 result 分析出的【大哥的建议】(数值逐字取自工具),不再内联 JSON;
-      未调天气工具(纯查/存坐标)则只回建议。回复保证带"大哥"。
+    - text = 判断类问题用 `analyzeFishing.summary`(短路);其余为 agent 基于 result 的回复(数值逐字取自工具),不再内联 JSON。
+      回复语言跟随用户(中文→中文、英文→英文),见 §10。("叫我大哥"的要求已移除。)
     - bot 层:`files` 用 `uploadMedia`(type=file)→ `replyMedia` 发出;text 走 `replyStream`。
 - `tools/`:每个工具导出 `{ name, description, parameters, execute(args) }`(**name === 文件名**);
   `registerTools.js` 汇总为 `tools` / `toolSchemas` / `executeTool(name,args)`。
   - `getCoordinateByName`:查数据库坐标(传 name 按名查、否则列全部)
-  - `addCoordinate`:新增/更新坐标到数据库(按名 upsert)
-  - `getCurrentWeather`:调 `getCurrentConditions(lat,lng,{name,note,unitSystem})` —— "现在"
-  - `getPredictWeather`:调 `getPredictConditions(lat,lng,{name,note,date,unitSystem})` —— "未来/等下"
+  - `addCoordinate`:新增/更新坐标到数据库(按名 upsert;**adminOnly**)
+  - `getCurrentWeather`:调 `getCurrentConditions(lat,lng,{name,note,unitSystem})` —— "现在"(仅要原始数据)
+  - `getPredictWeather`:调 `getPredictConditions(lat,lng,{name,note,date,unitSystem})` —— "未来/等下"(仅要原始数据)
+  - **`analyzeFishing`:钓鱼判断的"大脑"**(见 §10)。任何"好不好钓/什么时候去/现在还是等下/
+    今天明天怎样/涨还是退"的判断类问题都走它;内部自取海况(current/prediction)→ 再调一次 LLM
+    产出结构化报告,返回 `{summary(发聊天), full(拼进 .txt 附件), conditions}`。
+  > **agentCore 只是路由/转发层**:判断逻辑全在 `analyzeFishing`。命中 analyzeFishing 时直接用其
+  > `summary` 作聊天正文(短路,不再让模型转述),`full` 拼进附件。
   > 典型链路:用户问"xxx 今天怎样" → agent 先 `getCoordinateByName('xxx')` 拿到
   > `{name,latitude,longitude,note}` → 再把 name/note/坐标传给天气 tool,输出顶部即带 name/note。
   > **tool 层不解析站点**:只收 lat/lng/name/note 转调 spotConditions。
@@ -249,7 +254,7 @@ fishHelper/
   {
     name, note, latitude, longitude, date, currentTime,
     predictTideAndWeather: {
-      tideExtremes: { firstHighTide, firstLowTide, secondHighTide, secondLowTide },  // {time,height}
+      tideExtremes: [ { type:'High'|'Low', time, height }, ... ],  // 按时间排序的高低潮事件清单(见 §10)
       hourly: [                    // coops 潮 + nws 天气 按同一时刻合并(时间取两源交集,严格对齐)
         { time, waterLevel, temperature, windSpeed, windDirection,
           tidalCurrentSpeed, tidalCurrentDirection, windGust,
@@ -384,4 +389,62 @@ coordinates (
 - `suncalc`:astronomy 数据(离线)
 - 数据源:NOAA CO-OPS / NOAA NDBC / NWS / USGS Water / NOAA NCEI DEM(全免费)
 - 模块规范:ESM(`"type": "module"`)
+
+## 10. 钓鱼判断层 `analyzeFishing` 与近期迭代
+
+判断"这个钓点适不适合钓鱼"的逻辑,从 agentCore 抽出来独立成一个 tool——`analyzeFishing`
+(`src/agent/tools/analyzeFishing.js`)。agentCore 退化为纯路由:判断类问题交给它,它内部
+自取海况 → 再调一次 LLM(资深海钓向导提示词)产出结构化报告。
+
+### 10.1 两段输出:聊天摘要 + .txt 附件
+LLM 用 `===FULL===` 把输出切两段:
+- **PART 1 = summary(发聊天)**:精简摘要,固定行序 —— Current Time / Sunrise·Sunset /
+  **Tides** / Water Temperature / Wind / Air Temperature / Weather / 降水·雷暴概率 /
+  **Alerts** / 每个目标鱼种的星级 / Best Fishing Window。
+- **PART 2 = full(拼进附件)**:完整报告(全部 OUTPUT FORMAT 字段 + 逐项 ANALYSIS +
+  逐鱼种评级理由 + FINAL VERDICT + Today's Best Targets)。
+- 附件 = 原始 spotConditions JSON + `\n\n===== Fishing Analysis =====\n` + full。
+- 返回 `{summary, full, conditions}`;agentCore 命中即用 summary 短路作正文,不再让模型转述。
+
+### 10.2 目标鱼种打分
+固定鱼种(美东)通过 JSON payload 的 `targetSpecies` 字段传给模型(不写死在提示词里),
+逐种给 5 星评级(★ 实心 + ☆ 空心,固定 5 个字符),各配一句理由。当前列表:
+Striped Bass / Bluefish / Scup / Black Sea Bass / Tautog / Fluke / Weakfish / Squid。
+
+### 10.3 潮汐三档(current / 今天 / 未来某天)
+`tideExtremes` 已从 `{firstHighTide, secondHighTide, ...}` 命名(易被模型误读为"没有第二次高潮")
+改为**按时间排序的事件清单** `[{type:'High'|'Low', time, height}]`。coops 的 `buildPrediction`
+现在返回**全部**高低潮事件(`extremes` 数组,不再只留前两个),`localizeExtremes` 优先用它并支持按本地日期过滤。
+
+展示按"问法"分三档(agentCore 的 SYSTEM_PROMPT 路由 + getPredictConditions 内部按日期分窗口):
+| 问法 | mode / date | 潮汐窗口 | 摘要显示 |
+|---|---|---|---|
+| **现在** | current(无 date) | —— | 下一次高潮 + 下一次低潮 + 随后 |
+| **今天** | prediction,date=今天 | 从现在起 +24h(滚动) | 窗口内潮汐按时间列出 |
+| **明天/某天** | prediction,date=那天 | 那天本地 00:00–24:00 | 当天潮汐按时间列出 |
+
+- coops 未来某天窗口:从目标日 UTC 0 点起拉 30h(足够覆盖本地整天,含晚潮),再按**本地日期过滤**到 0–24 点。
+- "今天/现在"判定用美东日期(`America/New_York`)。
+
+### 10.4 未来某天天气(修复旧限制)
+旧限制"问 >2 天未来时逐小时只覆盖现在起 24h"**已修复**:NWS `forecastHourly` 本有 ~7 天数据,
+之前被 `slice(0,24)` 从现在切了。现在把目标日期传给 NWS,**按本地日期过滤**逐小时到目标那天整天;
+"今天/现在"仍走"从现在起滚动 24h"。
+
+### 10.5 风/气温/天气按固定 3 小时时段块
+预测模式下,`analyzeFishing` 在**代码里**(`computeHourlyBlocks`)把逐小时归入固定钟点时段块
+(00:00–02:59, 03:00–05:59, …, 21:00–23:59),每块算好风(速度范围+方位)、气温(范围)、天气(主要状况),
+以 `hourlyBlocks` 注入 payload,摘要照着逐行渲染。→ 避免让模型自己"每隔 3 小时挑一个点"导致的不稳定。
+
+### 10.6 Alerts 进摘要
+NWS 活跃预警(`currentTideAndWeather.alerts` / `predictTideAndWeather.alerts`,含 `isMarine`)
+在摘要里单列 **Alerts** 行,逐条显示(海洋类优先);无预警显示 "No active alerts"。
+
+### 10.7 多语言(全英文提示词,输出跟随用户语言)
+所有提示词用英文(模型表现更好、更省 token);**不做"翻译问题→英文"这一步**
+(会破坏中文钓点名如"基佬村"的查库)。agentCore 顶部检测语言(含中文字符→zh,否则 en),
+透传给各处:SYSTEM_PROMPT、`finalizeText()` 兜底文案、`analyzeFishing` 的 `[Language]` 指令。
+中文提问→整段中文(含所有字段标题),英文提问→整段英文。
+
+> 备注:早期"每条回复叫用户'大哥'"的要求**已移除**(用户撤回),提示词与兜底文案均不再强制。
 ```

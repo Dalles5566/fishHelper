@@ -123,7 +123,7 @@
   - `runAgent(userText,{history})`:OpenAI function-calling 循环(懒加载 client)
   - system prompt(钓鱼助手角色 + 选工具规则 + 综合潮汐/日月/风/水温判断鱼口 + 时间已本地化 + 缺数据如实说)
   - MAX_ROUNDS=6 防死循环;轮数用尽再做一次不带工具的总结
-  - 工具异常 catch 成 `{error,message}` 回填模型;`ensureDage()` 兜底保证回复带"大哥"
+  - 工具异常 catch 成 `{error,message}` 回填模型;兜底文案按语言(中/英)输出("大哥"要求已移除,见任务 12/13)
   - 已结构验证(模块加载 + toolSchemas 装配)。**真跑一轮需 OPENAI_API_KEY → 留到任务 8**
 
 **状态:已完成(待 review;实调等 key)**
@@ -151,7 +151,7 @@
       → getCoordinateByName → getPredictWeather,数值与工具数据逐字一致
 - [x] **修复关键 bug**:模型不知"今天",相对日期(明天/后天)靠猜 → 注入美东当前日期到 system prompt
 - [ ] 连企业微信真机:`npm start` 认证上线 + 手机企业微信里收发消息(待用户实机)
-- 已知限制:问 >~2 天的未来时,nws 逐小时只覆盖"现在起24h",天气时间线会不全(高低潮/日月不受影响)
+- ~~已知限制:问 >~2 天的未来时 nws 逐小时只覆盖"现在起24h"~~ → **已在任务 13 修复**(按目标日期过滤 nws 逐小时)
 
 **状态:核心链路已实测通过;仅剩企业微信真机联调**
 
@@ -209,10 +209,47 @@
 
 ---
 
+## ✅ 任务 12:钓鱼判断层 analyzeFishing + 摘要/附件 + 多语言(已上线)
+把"好不好钓"的判断从 agentCore 抽成独立 tool `analyzeFishing`(LLM-based,用户选 B 方案:
+"我不知道权重" → 不做规则加权,交给模型)。详见 design.md §10。
+- [x] `src/agent/tools/analyzeFishing.js`:资深海钓向导英文提示词;内部自取海况(current/prediction)
+      → 再调一次 LLM 产结构化报告;返回 `{summary, full, conditions}`
+- [x] **两段输出**(`===FULL===`):PART 1 摘要发聊天;PART 2 完整报告拼进 .txt 附件
+      (附件 = 原始 JSON + `===== Fishing Analysis =====` + full)。agentCore 命中即用 summary 短路作正文
+- [x] **agentCore 退化为纯路由**:SYSTEM_PROMPT 只管选工具 + 转发;判断逻辑全在 analyzeFishing
+- [x] **目标鱼种打分**:TARGET_SPECIES 经 JSON payload 的 `targetSpecies` 注入,逐种 5 星(★+☆ 固定 5 字符)+ 理由
+- [x] **多语言**:全部提示词英文(省 token/模型更稳),**不翻译问题**(保住中文钓点名查库);
+      agentCore 顶部检测语言透传 → 中文提问整段中文、英文整段英文(含字段标题);兜底文案也按语言
+- [x] **"叫我大哥"要求移除**(用户撤回):提示词与所有兜底文案不再强制
+- [x] 模型 `OPENAI_MODEL=gpt-5.4`(纯 env)
+
+**状态:已上线并实测**
+
+---
+
+## ✅ 任务 13:潮汐三档 + 全 extremes + 未来天气修复 + 3 小时块 + Alerts(已上线)
+详见 design.md §10.3–10.6。
+- [x] **tideExtremes 改为按时间排序的事件清单** `[{type,time,height}]`(弃 firstHigh/secondHigh 命名,
+      该命名曾让模型误判"没有第二次高潮"→ 假"无数据")
+- [x] **coops 返回全部高低潮事件**(`extremes` 数组,不再只留前两个);`localizeExtremes` 优先用它 + 支持本地日期过滤
+- [x] **潮汐三档**:现在=current(下一次高/低潮);今天=prediction 从现在起滚动 +24h;
+      明天/某天=prediction 该本地日 00:00–24:00。agentCore SYSTEM_PROMPT 点明"今天≠现在"(今天=一整天→prediction)
+- [x] **coops 未来窗口** 从目标日 UTC 0 点拉 30h 覆盖本地整天(含晚潮),再按本地日期过滤
+- [x] **修复未来某天天气**:NWS 逐小时原被 `slice(0,24)` 从现在切 → 现按目标本地日期过滤(NWS 本有 ~7 天)
+- [x] **风/气温/天气按固定 3 小时时段块**(`computeHourlyBlocks` 代码里算,00:00–02:59…21:00–23:59;
+      风=速度范围+方位、气温=范围、天气=主要状况),注入 `hourlyBlocks`,摘要照渲染 → 稳定一致
+- [x] **Alerts 进摘要**:活跃预警单列一行(海洋类优先),无则 "No active alerts"
+- [x] moonPhase / moonIllumination 纳入 common(满月潮大、鱼口活跃)
+- 决策:slack/转流时刻(currentExtremes)评估后**暂不做**(多数钓点潮流站无预测数据)
+
+**状态:已上线并实测(现在/今天/明天 三档潮汐 + 3 小时块 + Alerts 均验证)**
+
+---
+
 ## 决策记录
 - 传输:**企业微信智能机器人 + WebSocket 长连接**(`@wecom/aibot-node-sdk`)
 - 凭据:**botId + secret**(智能机器人),非自建应用 agentId/corpId
-- LLM:**OpenAI**(function calling),默认 gpt-4o-mini(可配)
+- LLM:**OpenAI**(function calling),`OPENAI_MODEL` 可配,当前 **gpt-5.4**(曾 gpt-4o-mini)
 - 数据库:**Postgres**(pg)
 - 数据源:**NOAA CO-OPS / NDBC / NWS / USGS / NCEI DEM + suncalc**(全免费,适用美国)
 - 架构:**挑选+重组(curation)**,两个天气 tool 按问题路由:
