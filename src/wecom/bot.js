@@ -39,9 +39,10 @@ export function startBot({ onMessage, notifyChatId = '' } = {}) {
         timeZone: 'America/New_York', month: '2-digit', day: '2-digit',
         hour: '2-digit', minute: '2-digit', hour12: false,
       }).format(new Date());
-      const content = `大哥,fishHelper 已更新上线 ✅\ncommit=${sha}\n上线时间=${when}(美东)`;
+      // 主动发送(aibot_send_msg)不支持纯 text,用 markdown
+      const content = `大哥,fishHelper 已更新上线 ✅\n> commit=\`${sha}\`\n> 上线时间=${when}(美东)`;
       client
-        .sendMessage(notifyChatId, { msgtype: 'text', text: { content } })
+        .sendMessage(notifyChatId, { msgtype: 'markdown', markdown: { content } })
         .then(() => console.log(`[bot] 部署通知已推送给 ${notifyChatId} (commit=${sha})`))
         .catch((err) => console.error('[bot] 部署通知发送失败:', err?.message || err));
     }
