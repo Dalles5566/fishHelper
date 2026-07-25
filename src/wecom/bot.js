@@ -77,7 +77,8 @@ export function startBot({ onMessage, notifyChatId = '' } = {}) {
     // 调业务处理，拿最终结果（{ text, files } 或纯字符串）
     let result;
     try {
-      result = await onMessage({ text, userId, frame });
+      const isAdmin = config.admins.includes(String(userId).toLowerCase());
+      result = await onMessage({ text, userId, frame, isAdmin });
     } catch (err) {
       console.error('[bot] onMessage 处理异常:', err?.message || err);
       result = { text: ERROR_TEXT, files: [] };

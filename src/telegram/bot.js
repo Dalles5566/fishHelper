@@ -74,7 +74,8 @@ export function startTelegram({ onMessage } = {}) {
 
     let result;
     try {
-      result = await onMessage({ text, userId: who, chatId: String(chatId) });
+      const isAdmin = config.admins.includes(username.toLowerCase()) || config.admins.includes(uid);
+      result = await onMessage({ text, userId: who, chatId: String(chatId), isAdmin });
     } catch (err) {
       console.error('[tg] onMessage 处理异常:', err?.message || err);
       result = { text: '抱歉,处理时出错了,请稍后再试。', files: [] };

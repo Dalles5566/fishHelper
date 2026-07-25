@@ -9,7 +9,7 @@
 // ============================================================================
 import OpenAI from 'openai';
 import { config } from '../config.js';
-import { toolSchemas, executeTool } from './tools/registerTools.js';
+import { toolSchemasFor, executeTool } from './tools/registerTools.js';
 
 const MAX_ROUNDS = 6; // 一次问答里最多几轮"模型↔工具",防止无限调用
 
@@ -122,7 +122,7 @@ function nowContext() {
   );
 }
 
-export async function runAgent(userText, { history = [] } = {}) {
+export async function runAgent(userText, { history = [], isAdmin = false } = {}) {
   const client = getClient();
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
@@ -131,6 +131,7 @@ export async function runAgent(userText, { history = [] } = {}) {
     { role: 'user', content: String(userText ?? '').trim() },
   ];
 
+  const toolSchemas = toolSchemasFor(isAdmin); // 非管理员看不到 adminOnly 工具
   const weatherResults = []; // 天气工具的原始 spotConditions,用于原样展示 JSON
   let finalText = null;
 
@@ -161,7 +162,7 @@ export async function runAgent(userText, { history = [] } = {}) {
       let result;
       try {
         const args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
-        result = await executeTool(name, args);
+        result = await executeTool(name, args, { isAdmin });
       } catch (err) {
         result = { error: true, tool: name, message: err.message };
       }

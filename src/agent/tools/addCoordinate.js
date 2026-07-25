@@ -6,6 +6,7 @@ import { addCoordinate } from '../../db/coordinates.js';
 
 export default {
   name: 'addCoordinate',
+  adminOnly: true, // 仅管理员可添加/更新钓点(非管理员时此工具对模型隐藏 + 执行层拦截)
   description:
     '保存(或更新)一个钓点坐标到数据库。按名称唯一,若已存在同名钓点则更新其坐标与备注。' +
     '当用户要求"把某个点存起来/记一下"时使用。',

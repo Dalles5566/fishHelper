@@ -49,6 +49,13 @@ export const config = {
     baseURL: process.env.OPENAI_BASE_URL || undefined,
   },
 
+  // 管理员身份(跨传输):逗号分隔的 tg 用户名/id 或企业微信 userid(不区分大小写)。
+  // 只有管理员能用 adminOnly 工具(如 addCoordinate 添加钓点)。
+  admins: (process.env.ADMINS || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
+
   // Telegram 传输(可选):配了 token 才启用,与企业微信并存
   telegram: {
     token: process.env.TELEGRAM_BOT_TOKEN || '',

@@ -20,9 +20,9 @@ function main() {
   }
 
   // 共用的消息处理:任何传输层收到文本都走这里 → agent → { text, files }
-  const onMessage = async ({ text, userId }) => {
-    console.log(`[agent] 处理 ${userId}: ${text}`);
-    return runAgent(text);
+  const onMessage = async ({ text, userId, isAdmin = false }) => {
+    console.log(`[agent] 处理 ${userId}${isAdmin ? '(管理员)' : ''}: ${text}`);
+    return runAgent(text, { isAdmin });
   };
 
   // 传输层一:企业微信智能机器人(WS 长连接)。notifyChatId 传入才会发企业微信部署通知;
