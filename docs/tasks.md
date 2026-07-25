@@ -157,6 +157,21 @@
 
 ---
 
+## ✅ 任务 9:部署 + CI/CD(已上线)
+- [x] Docker 独立部署:`Dockerfile` + `docker-compose.yml`(app + 专属 postgres,独立网络/数据卷)
+- [x] 已部署到服务器 67.205.150.67(root),与现有 feishuhelper 栈隔离:
+      - app 无宿主机端口;db 绑 `127.0.0.1:5433`(避开被占用的 5432,不暴露公网)
+      - 独立数据卷 `fishhelper_fishhelper_pgdata`;种子 5 钓点已入库;机器人认证上线
+- [x] GitHub Actions 自动部署 `.github/workflows/deploy.yml`:
+      push main → rsync 代码到服务器(保留服务器 .env)→ `docker compose up -d --build` → 健康检查
+      - secrets:DEPLOY_SSH_KEY / DEPLOY_HOST / DEPLOY_USER / DEPLOY_KNOWN_HOSTS(专用 CI→服务器密钥)
+      - 服务器不存 GitHub 凭据;`paths-ignore` 让纯文档改动不触发部署
+- [ ] 企业微信真机发消息端到端确认(附件 + 建议)
+
+**状态:已部署上线 + CI/CD 打通;待真机发消息确认**
+
+---
+
 ## 决策记录
 - 传输:**企业微信智能机器人 + WebSocket 长连接**(`@wecom/aibot-node-sdk`)
 - 凭据:**botId + secret**(智能机器人),非自建应用 agentId/corpId

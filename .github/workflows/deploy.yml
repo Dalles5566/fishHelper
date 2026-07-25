@@ -4,6 +4,9 @@ name: Deploy
 on:
   push:
     branches: [main]
+    paths-ignore: # 只改文档不触发部署
+      - 'docs/**'
+      - '**.md'
   workflow_dispatch:
 
 # 同一时间只跑一个部署,新的把旧的顶掉
