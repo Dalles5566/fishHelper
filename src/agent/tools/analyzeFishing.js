@@ -11,20 +11,21 @@ import { getCurrentConditions, getPredictConditions } from '../../services/spotC
 const FISHING_PROMPT = `You are an experienced saltwater fishing guide. Based on the given spotConditions JSON, judge whether this spot is good for fishing.
 
 [First list these highlights, one per line]
-1. Sunrise / Sunset
-2. Next high tide: time + height
-3. Water temperature
-4. Wind: speed + direction
-5. Air temperature
-6. Weather
+1. Current time (the request moment, from top-level currentTime)
+2. Sunrise / Sunset
+3. Next high tide: time + height
+4. Water temperature
+5. Wind: speed + direction
+6. Air temperature
+7. Weather
 Then, in a new paragraph, give the verdict: weigh the tide window (rising/falling/slack), sun & moon (dawn/dusk, moon phase / spring tide), wind, water temp, and depth; say whether it's good to fish and when the best window is. Tide turns, dawn/dusk, and spring tides are usually better; strong wind or thunderstorms are bad.
 
 [Data discipline - strict] Every number must come VERBATIM from the JSON; never invent/estimate:
-- sunrise/sunset/moon -> common; water temp -> currentTideAndWeather.waterTemp (prediction has none -> "no data");
+- current time -> top-level currentTime; sunrise/sunset/moon -> common; water temp -> currentTideAndWeather.waterTemp (prediction has none -> "no data");
 - next high/low tide -> tideExtremes (current: top-level; prediction: predictTideAndWeather.tideExtremes);
 - wind/air temp/weather -> currentTideAndWeather (now) or hourly (prediction).
 - If a value is null or absent, write "no data" - never guess.
-Times are already local: state ONLY the clock time like 05:34 or 18:19 (NOT the full ISO timestamp). Units: english (ft/knots/degF). Conversational, concise.`;
+Time formatting: for the current-time line show the local date + HH:MM (e.g. 2026-07-25 14:33); for sunrise/sunset/tides show ONLY HH:MM (e.g. 05:34). Never dump the full ISO timestamp. Units: english (ft/knots/degF). Conversational, concise.`;
 
 export default {
   name: 'analyzeFishing',
