@@ -48,7 +48,7 @@ Prediction Mode: Current Time -> currentTime; Prediction -> predictTideAndWeathe
 Water Temperature: Current Mode -> currentTideAndWeather.waterTemp; Prediction Mode -> if unavailable output "No data". Never use air temperature as water temperature.
 Wind Direction: Current Mode -> prefer wind.cardinal (if unavailable "No data"); Prediction Mode -> hourly.windDirection.
 Moon: use common.moonPhase. Moon Illumination: use common.moonIllumination. Never infer moon phase from illumination.
-Next High/Low Tide: tideExtremes is a CHRONOLOGICAL list of tide events, each { type: "High" | "Low", time, height }, sorted by time. The Next High Tide = the FIRST event with type "High" whose time is after Current Time; the Next Low Tide = the first "Low" event after Current Time. Only output "No data" if the list is empty or contains no such future event.
+Upcoming Tides: tideExtremes is a CHRONOLOGICAL list of tide events, each { type: "High" | "Low", time, height }, already sorted by time (it naturally alternates high/low). List the upcoming events in that time order, e.g. "18:01 High 3.19 ft -> 00:20 Low 0.74 ft -> 06:19 High 2.68 ft". Do NOT force a single "next high" / "next low"; just present the sequence as given. If the list is empty, output "No data".
 Prediction Hour Selection: use the hourly forecast matching the requested fishing time. If a time range is requested, evaluate the entire range.
 
 ================== OUTPUT FORMAT ==================
@@ -56,8 +56,7 @@ Current Time:
 Sunrise / Sunset:
 Moon Phase:
 Moon Illumination:
-Next High Tide:
-Next Low Tide:
+Upcoming Tides:
 Water Temperature:
 Wind:
 Air Temperature:
@@ -142,7 +141,7 @@ export default {
     const splitLine =
       'Output in TWO parts separated by a line containing only "===FULL===".\n' +
       'PART 1 (before ===FULL===) = a SHORT summary, one item per line, in this exact order: ' +
-      'Current Time; Sunrise / Sunset; Next High Tide; Next Low Tide; Water Temperature; Wind; Air Temperature; Weather; ' +
+      'Current Time; Sunrise / Sunset; Upcoming Tides (the tideExtremes list in time order); Water Temperature; Wind; Air Temperature; Weather; ' +
       'then each target species with its star rating (one line each); then Best Fishing Window. Put NOTHING else in PART 1.\n' +
       "PART 2 (after ===FULL===) = the COMPLETE report exactly as specified above (all OUTPUT FORMAT fields, full ANALYSIS, " +
       "per-species ratings with one-line reasons, FINAL VERDICT, and Today's Best Targets).";
