@@ -9,16 +9,16 @@ import { listCoordinates, findCoordinateByName, searchCoordinates } from '../../
 export default {
   name: 'getCoordinateByName',
   description:
-    '查询已保存的钓点坐标。传 name 时:先精确匹配,匹配不到再按名字/备注做模糊(部分)匹配 —— ' +
-    '所以用户只说钓点名的一部分(如"ProvinceTown")或备注里的叫法(如"军校""基佬村")也能查到。' +
-    '返回单个 {name,latitude,longitude,note},或多个候选 matches;不传 name 则返回全部钓点列表。' +
-    '用于把钓点名解析成经纬度,再交给天气工具。',
+    'Look up saved fishing-spot coordinates. With name: try exact match first, then fuzzy (partial) match on ' +
+    'name OR note -- so part of a name (e.g. "ProvinceTown") or a note nickname (e.g. "军校"/"基佬村") also works. ' +
+    'Returns a single {name,latitude,longitude,note}, or multiple candidate matches; without name, returns all spots. ' +
+    'Use it to resolve a spot name into coordinates before calling the weather/fishing tools.',
   parameters: {
     type: 'object',
     properties: {
       name: {
         type: 'string',
-        description: '钓点名或其一部分(也可用备注里的叫法)。省略则列出全部钓点。',
+        description: 'Spot name or part of it (a note nickname also works). Omit to list all spots.',
       },
     },
     required: [],

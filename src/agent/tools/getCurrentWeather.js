@@ -8,19 +8,20 @@ import { getCurrentConditions } from '../../services/spotConditions.js';
 export default {
   name: 'getCurrentWeather',
   description:
-    '查询某坐标"现在"的实测海况:当前潮位、水温、气温、气压、风(速/向/阵风)、浪、天气描述、' +
-    '预警,以及日月(日出日落/月相)、水深。用于回答"现在这里怎么样"这类当下问题。',
+    "Get a spot's CURRENT observed conditions: water level, water/air temp, pressure, wind (speed/dir/gust), " +
+    'waves, weather, alerts, plus sun & moon (sunrise/sunset/phase), depth, and next high/low tide. ' +
+    'For "how is it here right now" (raw data, no judgment).',
   parameters: {
     type: 'object',
     properties: {
-      latitude: { type: 'number', description: '纬度,十进制度' },
-      longitude: { type: 'number', description: '经度,十进制度' },
-      name: { type: 'string', description: '钓点名(来自 queryCoords,可选)' },
-      note: { type: 'string', description: '钓点备注(来自 queryCoords,可选)' },
+      latitude: { type: 'number', description: 'Latitude, decimal degrees' },
+      longitude: { type: 'number', description: 'Longitude, decimal degrees' },
+      name: { type: 'string', description: 'Spot name (from getCoordinateByName, optional)' },
+      note: { type: 'string', description: 'Spot note (from getCoordinateByName, optional)' },
       unitSystem: {
         type: 'string',
         enum: ['english', 'metric'],
-        description: '单位制,默认 english(ft/knots/°F)',
+        description: 'unit system, default english (ft/knots/degF)',
       },
     },
     required: ['latitude', 'longitude'],

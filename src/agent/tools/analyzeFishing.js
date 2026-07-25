@@ -8,45 +8,44 @@ import { getClient } from '../openaiClient.js';
 import { config } from '../../config.js';
 import { getCurrentConditions, getPredictConditions } from '../../services/spotConditions.js';
 
-const FISHING_PROMPT = `你是资深海钓向导。根据给你的 spotConditions JSON,判断这个钓点适不适合钓鱼。
+const FISHING_PROMPT = `You are an experienced saltwater fishing guide. Based on the given spotConditions JSON, judge whether this spot is good for fishing.
 
-【必须先按顺序列出这几个重点,每项一行】
-1. 日出 / 日落
-2. 下一次涨潮:时间 + 潮位
-3. 水温
-4. 风速 + 风向
-5. 气温
-6. 天气
-写完这 6 条,再另起一段给判断:综合潮汐窗口(涨落潮/平潮)、日月(晨昏、月相大潮)、风力、水温、水深,
-说明"适不适合钓、什么时候是最佳窗口"。潮汐转换前后、晨昏、大潮期通常更好;大风/雷暴则差。
+[First list these highlights, one per line]
+1. Sunrise / Sunset
+2. Next high tide: time + height
+3. Water temperature
+4. Wind: speed + direction
+5. Air temperature
+6. Weather
+Then, in a new paragraph, give the verdict: weigh the tide window (rising/falling/slack), sun & moon (dawn/dusk, moon phase / spring tide), wind, water temp, and depth; say whether it's good to fish and when the best window is. Tide turns, dawn/dusk, and spring tides are usually better; strong wind or thunderstorms are bad.
 
-【数据纪律(严格)】所有数值必须逐字来自 JSON,严禁编造/估算:
-- 日出日落/月相 → common;水温 → currentTideAndWeather.waterTemp(预测无 → 写"无数据");
-- 下一次高低潮 → tideExtremes(现在在顶层,预测在 predictTideAndWeather.tideExtremes);
-- 风/气温/天气 → currentTideAndWeather(现在)或 hourly(预测)。
-- 某项是 null 或没有,就写"无数据",绝不猜。
-时间已是钓点当地时间(带偏移),直接说几点几分。单位英制(ft/节/°F)。口语、简洁。`;
+[Data discipline - strict] Every number must come VERBATIM from the JSON; never invent/estimate:
+- sunrise/sunset/moon -> common; water temp -> currentTideAndWeather.waterTemp (prediction has none -> "no data");
+- next high/low tide -> tideExtremes (current: top-level; prediction: predictTideAndWeather.tideExtremes);
+- wind/air temp/weather -> currentTideAndWeather (now) or hourly (prediction).
+- If a value is null or absent, write "no data" - never guess.
+Times are already local: state ONLY the clock time like 05:34 or 18:19 (NOT the full ISO timestamp). Units: english (ft/knots/degF). Conversational, concise.`;
 
 export default {
   name: 'analyzeFishing',
   description:
-    '判断某坐标适不适合钓鱼:自动获取海况并给出"6 项重点 + 是否适合 + 最佳时段"。' +
-    '凡是"适不适合钓/好不好钓/怎么样/什么时候去/现在还是等下/今天明天如何、涨还是退"这类需要判断的问题,' +
-    '都用这个工具(而不是 getCurrentWeather/getPredictWeather —— 那两个只给原始数据、不做判断)。',
+    'Judge whether a spot is good for fishing: auto-fetches conditions and returns "6 highlights + verdict + best window". ' +
+    'Use this tool for ANY judgment question (is it good to fish / how is it / when should I go / now or later / ' +
+    'how about today/tomorrow / rising or falling), NOT getCurrentWeather/getPredictWeather (those return raw data only).',
   parameters: {
     type: 'object',
     properties: {
-      latitude: { type: 'number', description: '纬度' },
-      longitude: { type: 'number', description: '经度' },
-      name: { type: 'string', description: '钓点名(来自 getCoordinateByName,可选)' },
-      note: { type: 'string', description: '钓点备注(可选)' },
+      latitude: { type: 'number', description: 'Latitude' },
+      longitude: { type: 'number', description: 'Longitude' },
+      name: { type: 'string', description: 'Spot name (from getCoordinateByName, optional)' },
+      note: { type: 'string', description: 'Spot note (optional)' },
       mode: {
         type: 'string',
         enum: ['current', 'prediction'],
-        description: '现在(current)还是未来预测(prediction);默认 current',
+        description: 'now (current) or future forecast (prediction); default current',
       },
-      date: { type: 'string', description: '预测目标日期 YYYY-MM-DD(mode=prediction 时;省略=从现在起)' },
-      unitSystem: { type: 'string', enum: ['english', 'metric'], description: '默认 english' },
+      date: { type: 'string', description: 'Target date YYYY-MM-DD (when mode=prediction; omit = from now)' },
+      unitSystem: { type: 'string', enum: ['english', 'metric'], description: 'default english' },
     },
     required: ['latitude', 'longitude'],
     additionalProperties: false,

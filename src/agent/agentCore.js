@@ -13,22 +13,23 @@ import { toolSchemasFor, executeTool } from './tools/registerTools.js';
 
 const MAX_ROUNDS = 6; // 一次问答里最多几轮"模型↔工具",防止无限调用
 
-// agentCore 只做"路由 + 转述";钓鱼判断的逻辑在 analyzeFishing 工具里。
-const SYSTEM_PROMPT = `你是"钓鱼助手"的调度器,用户在美国东部(RI/MA/NH 一带)。
-你的职责:理解用户意图 → 调用合适的工具 → 把结果如实转达给用户。
-【语言】回复语言与用户提问一致:用户用中文就用中文,用英文就用英文(其他语言同理)。
+// agentCore is only a router/relayer; the fishing judgment lives in the analyzeFishing tool.
+const SYSTEM_PROMPT = `You are the dispatcher for a fishing assistant. The user is on the US East Coast (RI/MA/NH area).
+Your job: understand the user's intent -> call the right tool(s) -> relay the result faithfully.
+[Language] Reply in the SAME language as the user's message (Chinese -> Chinese, English -> English).
 
-【工具与选择】
-- getCoordinateByName:把钓点名/备注(如"军校""基佬村"或名字的一部分)解析成坐标(+备注 note)。
-  用户给的是名字而非经纬度时,先调它拿到 {name,latitude,longitude,note}。
-- analyzeFishing:判断"适不适合钓鱼"。凡"适不适合钓/好不好钓/怎么样/什么时候去/现在还是等下/今天明天如何/涨还是退"
-  这类需要判断的问题,都用它。调用时把 name/note/latitude/longitude 带上;
-  问现在用 mode=current,问未来用 mode=prediction 并把相对日期换算成 date=YYYY-MM-DD。
-  ★ 它返回的 analysis 已是给用户的最终措辞,请【原样呈现】,不要改写、增删或改动其中任何数值。
-- getCurrentWeather / getPredictWeather:用户只想看"原始海况数据"、不要判断时才用。
-- addCoordinate:保存/更新钓点(仅管理员;非管理员没有这个工具,别提它)。
+[Tools]
+- getCoordinateByName: resolve a saved spot name (or part of it, or its note like "军校"/"基佬村") into coordinates (+ note).
+  If the user gives a name instead of lat/lng, call this FIRST to get {name, latitude, longitude, note}.
+- analyzeFishing: judge whether a spot is good for fishing. Use it for ANY judgment question
+  ("is it good to fish / how is it / when should I go / now or later / how about today/tomorrow / rising or falling").
+  Pass name/note/latitude/longitude. Use mode=current for now; mode=prediction for the future
+  (convert relative dates like today/tomorrow to date=YYYY-MM-DD).
+  * Its returned "analysis" is already the final wording for the user -> relay it VERBATIM; do not rewrite, add, or change any number.
+- getCurrentWeather / getPredictWeather: only when the user just wants the raw conditions data, no judgment.
+- addCoordinate: save/update a spot (admins only; non-admins don't have this tool -- don't mention it).
 
-【规范】时间已是钓点当地时间,直接用;任何数值只用工具返回的,绝不编造;缺失就说"无数据"。`;
+[Rules] Times are already local -- use as-is; use only numbers returned by tools, never invent; if a value is missing, say "no data".`;
 
 /** 最终文本兜底:空则按语言给个提示 */
 function finalizeText(text, lang = 'zh') {
@@ -69,8 +70,9 @@ function buildOutput(finalText, weatherResults, lang = 'zh') {
  * @returns {Promise<{text:string, files:{filename:string,content:string}[]}>}
  *   text = 内联数据(现在)+【大哥的建议】;files = 预测的完整 JSON(.txt 附件)
  */
-/** 当前"钓点所在时区(美东)"的日期时间,注入给模型解析"今天/明天"等相对日期(按语言) */
-function nowContext(lang = 'zh') {
+/** Current date/time in the spot's timezone (US Eastern), injected so the model can resolve
+ *  relative dates like today/tomorrow. Instruction to the model -> English only. */
+function nowContext() {
   const tz = 'America/New_York';
   const p = new Intl.DateTimeFormat('en-CA', {
     timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
@@ -79,17 +81,10 @@ function nowContext(lang = 'zh') {
     .formatToParts(new Date())
     .reduce((a, x) => ((a[x.type] = x.value), a), {});
   const dateStr = `${p.year}-${p.month}-${p.day}`;
-  if (lang === 'en') {
-    return (
-      `[Current time] ${dateStr} (${p.weekday}) ${p.hour}:${p.minute} US Eastern (${tz}).\n` +
-      `When the user says today/tomorrow/this weekend etc., convert it to an absolute date ` +
-      `YYYY-MM-DD and pass it as the date param to analyzeFishing/getPredictWeather. Never guess the date.`
-    );
-  }
   return (
-    `【当前时间】${dateStr}(${p.weekday}) ${p.hour}:${p.minute} 美东时间(${tz})。\n` +
-    `用户说"今天/明天/后天/这周末"等相对日期时,先据此换算成绝对日期 YYYY-MM-DD,` +
-    `再作为 date 参数传给 analyzeFishing/getPredictWeather。绝不要凭空猜日期。`
+    `[Current time] ${dateStr} (${p.weekday}) ${p.hour}:${p.minute} US Eastern (${tz}).\n` +
+    `When the user says today/tomorrow/this weekend etc., convert it to an absolute date ` +
+    `YYYY-MM-DD and pass it as the date param to analyzeFishing/getPredictWeather. Never guess the date.`
   );
 }
 
@@ -99,7 +94,7 @@ export async function runAgent(userText, { history = [], isAdmin = false } = {})
   const lang = /[\u4e00-\u9fff]/.test(String(userText ?? '')) ? 'zh' : 'en';
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'system', content: nowContext(lang) },
+    { role: 'system', content: nowContext() },
     ...history,
     { role: 'user', content: String(userText ?? '').trim() },
   ];
@@ -165,10 +160,8 @@ export async function runAgent(userText, { history = [], isAdmin = false } = {})
 
   // 轮数用尽仍未收敛:让模型基于已有工具结果做一次不带工具的总结(语言跟随用户)
   if (finalText === null) {
-    const summaryAsk =
-      lang === 'en'
-        ? 'Based on the above, give the final reply directly (do not call any more tools).'
-        : '请基于以上信息直接给出最终回复(不要再调用工具)。';
+    // 指令给模型;输出语言由 SYSTEM_PROMPT 的"跟随用户语言"决定
+    const summaryAsk = 'Based on the above, give the final reply directly (do not call any more tools).';
     const finalCompletion = await client.chat.completions.create({
       model: config.openai.model,
       messages: [...messages, { role: 'user', content: summaryAsk }],

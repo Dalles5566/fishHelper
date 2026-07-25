@@ -8,23 +8,24 @@ import { getPredictConditions } from '../../services/spotConditions.js';
 export default {
   name: 'getPredictWeather',
   description:
-    '预测某坐标未来约 24 小时的海况:逐小时潮位/潮流/气温/风/浪/天气,加上高低潮时刻(tideExtremes)、' +
-    '海上预警,以及日月/水深。用于回答"今天/明天/等下好不好钓、几点涨潮/落潮、现在涨还是退"这类预测问题。',
+    "Forecast a spot's conditions ~next 24h: hourly water level/tidal current/air temp/wind/waves/weather, " +
+    'plus high/low tide times (tideExtremes), marine alerts, and sun & moon / depth. ' +
+    'For "how about today/tomorrow/later, when is high/low tide, rising or falling" (raw data, no judgment).',
   parameters: {
     type: 'object',
     properties: {
-      latitude: { type: 'number', description: '纬度,十进制度' },
-      longitude: { type: 'number', description: '经度,十进制度' },
-      name: { type: 'string', description: '钓点名(来自 queryCoords,可选)' },
-      note: { type: 'string', description: '钓点备注(来自 queryCoords,可选)' },
+      latitude: { type: 'number', description: 'Latitude, decimal degrees' },
+      longitude: { type: 'number', description: 'Longitude, decimal degrees' },
+      name: { type: 'string', description: 'Spot name (from getCoordinateByName, optional)' },
+      note: { type: 'string', description: 'Spot note (from getCoordinateByName, optional)' },
       date: {
         type: 'string',
-        description: '目标日期 YYYY-MM-DD;省略则为"从现在起未来约24小时"',
+        description: 'Target date YYYY-MM-DD; omit = "next ~24h from now"',
       },
       unitSystem: {
         type: 'string',
         enum: ['english', 'metric'],
-        description: '单位制,默认 english(ft/knots/°F)',
+        description: 'unit system, default english (ft/knots/degF)',
       },
     },
     required: ['latitude', 'longitude'],
