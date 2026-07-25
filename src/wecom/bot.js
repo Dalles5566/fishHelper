@@ -14,7 +14,7 @@ const ERROR_TEXT = '抱歉，处理时出错了，请稍后再试。';
  *        收到文本消息时调用，返回要回复的最终文本。
  * @returns {WSClient}
  */
-export function startBot({ onMessage } = {}) {
+export function startBot({ onMessage, notifyChatId = '' } = {}) {
   if (typeof onMessage !== 'function') {
     throw new Error('startBot 需要传入 onMessage 处理函数');
   }
@@ -26,7 +26,26 @@ export function startBot({ onMessage } = {}) {
 
   // ---- 连接生命周期日志 ----
   client.on('connected', () => console.log('[bot] WebSocket 已连接'));
-  client.on('authenticated', () => console.log('[bot] 认证成功，机器人已上线'));
+
+  // 部署通知:本进程首次认证成功时,主动推一条"已更新上线"给 notifyChatId。
+  // 用 deployNotified 保证只发一次(authenticated 在每次断线重连都会触发,不能重复推)。
+  let deployNotified = false;
+  client.on('authenticated', () => {
+    console.log('[bot] 认证成功，机器人已上线');
+    if (notifyChatId && !deployNotified) {
+      deployNotified = true;
+      const sha = (process.env.GIT_SHA || 'dev').slice(0, 7);
+      const when = new Intl.DateTimeFormat('zh-CN', {
+        timeZone: 'America/New_York', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', hour12: false,
+      }).format(new Date());
+      const content = `大哥,fishHelper 已更新上线 ✅\ncommit=${sha}\n上线时间=${when}(美东)`;
+      client
+        .sendMessage(notifyChatId, { msgtype: 'text', text: { content } })
+        .then(() => console.log(`[bot] 部署通知已推送给 ${notifyChatId} (commit=${sha})`))
+        .catch((err) => console.error('[bot] 部署通知发送失败:', err?.message || err));
+    }
+  });
   client.on('disconnected', (reason) => console.warn(`[bot] 连接断开: ${reason}`));
   client.on('reconnecting', (attempt) => console.warn(`[bot] 正在第 ${attempt} 次重连…`));
   client.on('error', (err) => console.error('[bot] 错误:', err?.message || err));

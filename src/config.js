@@ -49,6 +49,11 @@ export const config = {
     baseURL: process.env.OPENAI_BASE_URL || undefined,
   },
 
+  // 部署通知:app 启动上线后主动给这个 chatId(单聊=userid)推一条"已更新"消息
+  notify: {
+    chatId: process.env.DEPLOY_NOTIFY_CHATID || '',
+  },
+
   // NWS(api.weather.gov)要求请求头带 User-Agent 标识应用与联系方式
   nws: {
     userAgent:

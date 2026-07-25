@@ -4,7 +4,7 @@
 // 数据流:企业微信 → bot(message.text)→ onMessage → runAgent(OpenAI+tools)→ 流式回复
 // 常驻 WebSocket 客户端,不监听入站端口。
 // ============================================================================
-import { assertConfig } from './config.js';
+import { assertConfig, config } from './config.js';
 import { startBot } from './wecom/bot.js';
 import { runAgent } from './agent/agentCore.js';
 import { pool } from './db/pool.js';
@@ -20,6 +20,7 @@ function main() {
 
   // 收到用户文本 → 交给 agent 处理,返回最终回复(bot 层负责流式发送)
   const client = startBot({
+    notifyChatId: config.notify.chatId, // 启动上线后给这个 chatId 推部署通知
     onMessage: async ({ text, userId }) => {
       console.log(`[agent] 处理 ${userId}: ${text}`);
       return runAgent(text);
