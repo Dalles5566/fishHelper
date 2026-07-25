@@ -69,11 +69,20 @@ LLM agent 分析意图,自动调用工具(查/存钓点坐标、查某坐标的�
    返回 `{ text, files }` 后各自渲染。两者都是"只出不进",都不需要公网 URL/域名/备案。
    - **Telegram**:`TELEGRAM_BOT_TOKEN` 配了才启用;`TELEGRAM_ALLOWED` 做用户名/ID 白名单(留空=开放)。
      解决"不想用企业微信 App"的诉求;个人微信因无官方 API + 需备案,不走(见下)。
+   - **两层权限**:`TELEGRAM_ALLOWED`=谁能用 bot;`ADMINS`=谁能用 adminOnly 工具(如 `addCoordinate` 加钓点)。
+     传输层算出 `isAdmin` → 透传到 `runAgent(text,{isAdmin})` → `toolSchemasFor(isAdmin)` 对非管理员**隐藏** adminOnly 工具,
+     `executeTool` 再**拦一道**(双保险)。朋友能查、不能加。
+   - **身份稳定性**:Telegram **数字 id 永不变**(首选),**用户名可改**(次选);企业微信 userid 企业内稳定。
+     → `ADMINS`/`TELEGRAM_ALLOWED` 建议**同时写 id + 用户名**,改名也不丢权限。
    - **为何不用个人微信**:微信客服需公网 HTTPS 回调 + 大概率 ICP 备案(美国用户无法满足);
      个人微信无官方 bot API,逆向方案有封号风险。Telegram 是合规且零基建的替代。
 
-3c. **部署通知**:app 启动认证成功后,主动给 `DEPLOY_NOTIFY_CHATID` 推一条"已更新+commit",
-   收到即证明最新代码上线(企业微信主动发只支持 markdown,不支持纯 text)。
+3c. **部署通知**:app 启动上线后主动推一条"已更新+commit"。当前**只发 Telegram**(`DEPLOY_NOTIFY_TG_CHATID`,
+   Telegram sendMessage 支持纯文本);`DEPLOY_NOTIFY_CHATID`(企业微信)留空即停用。企业微信主动发只支持 markdown。
+
+3d. **质量门禁:ESLint + CI lint。** `eslint.config.js`(flat config)开 `no-undef`(error)专抓
+   "改名漏改/未定义变量"(如曾出现的 `userId is not defined`),`no-unused-vars`(warn)。
+   GitHub Actions 在**构建镜像前先 `npm ci && npm run lint`**,lint 不过则不部署 —— 这类低级错拦在上线前。
 
 4. **流式回复。**
    收到消息先 `replyStream(frame, streamId, '正在查询...', false)`,

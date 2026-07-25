@@ -189,7 +189,23 @@
 - [x] 模型升级:`OPENAI_MODEL=gpt-5.4`(纯 env,gpt-4o-mini→gpt-5.4,已实测更稳)
 - 决策:个人微信不做(微信客服需公网HTTPS+ICP备案,美国用户无法满足;逆向方案封号风险)→ 用 Telegram 替代
 
-**状态:企业微信 + Telegram 双入口均上线;可选下一步:每日定时主动推送、Telegram 部署通知**
+**状态:企业微信 + Telegram 双入口均上线**
+
+---
+
+## ✅ 任务 11:权限、身份、质量门禁(已上线)
+- [x] **管理员权限**:`ADMINS`(tg 用户名/id 或企微 userid)。`addCoordinate` 标 `adminOnly`:
+      非管理员时从工具列表隐藏(`toolSchemasFor(isAdmin)`)+ `executeTool` 拦截(双保险)。
+      传输层算 `isAdmin` → `runAgent(text,{isAdmin})` → executeTool。朋友能查、不能加钓点。
+- [x] **身份稳定性**:tg 数字 id 永不变(首选)、用户名可改(次选)、企微 userid 稳定。
+      `ADMINS` / `TELEGRAM_ALLOWED` 同时写 id+用户名,改名不丢权限。
+      (当前 ADMINS=dragonbasky,5115952326,liudallasbinglin;TELEGRAM_ALLOWED=dragonbasky,5115952326)
+- [x] **部署通知改只发 Telegram**(`DEPLOY_NOTIFY_TG_CHATID`),企业微信通知停用。
+- [x] **ESLint + CI 门禁**:`eslint.config.js`(no-undef=error / no-unused-vars=warn);
+      CI 构建前 `npm ci && npm run lint`,lint 不过不部署。修了 Telegram `userId` 未定义 bug 的根因防线。
+
+**状态:双入口 + 白名单 + 管理员权限 + 质量门禁 全部上线**
+可选下一步:每日定时主动推送海况。
 
 ---
 
