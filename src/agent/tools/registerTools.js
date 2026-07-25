@@ -7,9 +7,10 @@ import getCoordinateByName from './getCoordinateByName.js';
 import addCoordinate from './addCoordinate.js';
 import getCurrentWeather from './getCurrentWeather.js';
 import getPredictWeather from './getPredictWeather.js';
+import analyzeFishing from './analyzeFishing.js';
 
 /** 所有工具(每个 = { name, description, parameters, execute, adminOnly? }) */
-export const tools = [getCoordinateByName, addCoordinate, getCurrentWeather, getPredictWeather];
+export const tools = [getCoordinateByName, addCoordinate, getCurrentWeather, getPredictWeather, analyzeFishing];
 
 const toSchema = (t) => ({
   type: 'function',

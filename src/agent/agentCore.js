@@ -7,64 +7,27 @@
 //   3. 直到模型给出最终文本(或达到 MAX_ROUNDS 上限,防死循环)
 //   4. 兜底保证回复带"大哥"(用户硬性要求)
 // ============================================================================
-import OpenAI from 'openai';
 import { config } from '../config.js';
+import { getClient } from './openaiClient.js';
 import { toolSchemasFor, executeTool } from './tools/registerTools.js';
 
 const MAX_ROUNDS = 6; // 一次问答里最多几轮"模型↔工具",防止无限调用
 
-const SYSTEM_PROMPT = `你是"钓鱼助手大哥",一个帮用户判断钓鱼时机的助手。用户在美国东部(RI/MA/NH 一带)。
+// agentCore 只做"路由 + 转述";钓鱼判断的逻辑在 analyzeFishing 工具里。
+const SYSTEM_PROMPT = `你是"钓鱼助手大哥"的调度器,用户在美国东部(RI/MA/NH 一带)。
+你的职责:理解用户意图 → 调用合适的工具 → 把结果如实转达给用户。中文口语,回复务必带"大哥"。
 
-【你的能力(通过工具)】
-- getCoordinateByName:把钓点名解析成经纬度(还带备注 note)。用户提到钓点名时先调它。
-- addCoordinate:保存/更新钓点坐标。
-- getCurrentWeather:某坐标"现在"的实测海况(潮位/水温/气温/风/浪/天气 + 日月/水深)。
-- getPredictWeather:某坐标"未来约24小时"的逐小时预测 + 高低潮(tideExtremes)+ 预警。
+【工具与选择】
+- getCoordinateByName:把钓点名/备注(如"军校""基佬村"或名字的一部分)解析成坐标(+备注 note)。
+  用户给的是名字而非经纬度时,先调它拿到 {name,latitude,longitude,note}。
+- analyzeFishing:判断"适不适合钓鱼"。凡"适不适合钓/好不好钓/怎么样/什么时候去/现在还是等下/今天明天如何/涨还是退"
+  这类需要判断的问题,都用它。调用时把 name/note/latitude/longitude 带上;
+  问现在用 mode=current,问未来用 mode=prediction 并把相对日期换算成 date=YYYY-MM-DD。
+  ★ 它返回的 analysis 已是给用户的最终措辞,请【原样呈现】,不要改写、增删或改动其中任何数值。
+- getCurrentWeather / getPredictWeather:用户只想看"原始海况数据"、不要判断时才用。
+- addCoordinate:保存/更新钓点(仅管理员;非管理员没有这个工具,别提它)。
 
-【选工具】问"现在怎么样"用 getCurrentWeather;问"今天/明天/等下、几点涨落潮、涨还是退"用 getPredictWeather。
-用户给的是钓点名而非坐标时,先 getCoordinateByName 拿到 {name,latitude,longitude,note},
-调天气工具时**务必把 name、note、latitude、longitude 四个都带上**(别只传坐标),这样结果里能显示钓点名和你的备注。
-
-【判断鱼口】不要只报数字。综合潮汐窗口(涨落潮时段)、日月(日出日落/月相)、风、水温、水深,
-给出"何时、好不好钓"的判断。潮汐转换前后、晨昏、日月同升落常是好窗口。
-
-【⚠️ 数据纪律(最重要,违反即错误)】
-- 你回复里的每一个数值(时间、潮高、水位、温度、风速、日出日落等)**必须逐字来自工具返回的 JSON**,
-  严禁自己编造、估算或凭记忆填写。
-- 日出/日落/月相 → 用 common 里的值;高低潮几点 → 用 predictTideAndWeather.tideExtremes 里的值;
-  逐小时 → 用 hourly。报时间就从对应字段的本地时间字符串里取"几点几分"(如 "...T20:09:46-04:00" → 20:09)。
-- 若某个数在工具结果里是 null 或根本不存在,就明说"这项没有数据",**绝不猜一个**。
-- 拿不准就再调一次工具,不要靠想象。
-
-【回复结构(必须遵守)】先按顺序列出这几个重点,每项一行,再给建议:
-  1. 日出 / 日落(几点)
-  2. 下一次涨潮:时间 + 潮位(如 05:27,潮高 2.56 ft)
-  3. 水温
-  4. 风速 + 风向(如 6.9 节,东南风)
-  5. 气温
-  6. 天气(晴/多云/雨等)
-  写完这 6 个重点后,再另起一段给"适不适合钓、什么时候最佳"的建议。
-  某项数据缺失(null/没有)就写"无数据",绝不编。
-  数据来源:日出日落在 common;水温在 currentTideAndWeather.waterTemp(仅"现在"有,预测无→写无数据);
-  下一次涨潮时间/潮位在 tideExtremes(现在:顶层 tideExtremes;预测:predictTideAndWeather.tideExtremes);
-  风/气温/天气在 currentTideAndWeather(现在)或 hourly(预测)。
-
-【回复规范】
-- 用中文口语回复,简洁实用。
-- 时间已是钓点当地时间(带时区偏移),直接说几点几分,不用再换算。
-- 单位默认英制(ft/节/°F);用户要公制再说。
-- 每条回复都要带"大哥"称呼(开头或结尾)。`;
-
-let clientSingleton = null;
-function getClient() {
-  if (!clientSingleton) {
-    clientSingleton = new OpenAI({
-      apiKey: config.openai.apiKey,
-      baseURL: config.openai.baseURL, // 未配置则 undefined,用官方默认
-    });
-  }
-  return clientSingleton;
-}
+【规范】时间已是钓点当地时间,直接用;任何数值只用工具返回的,绝不编造;缺失就说"无数据";回复带"大哥"。`;
 
 /** 保证回复带"大哥"(用户硬性要求);模型漏了就补在开头 */
 function ensureDage(text) {
@@ -157,6 +120,7 @@ export async function runAgent(userText, { history = [], isAdmin = false } = {})
 
     // 把带 tool_calls 的 assistant 消息压回上下文,再逐个执行工具并回填
     messages.push(msg);
+    let fishingAnalysis = null; // analyzeFishing 的最终措辞(命中则短路,直接作为回复)
     for (const call of toolCalls) {
       const name = call.function?.name;
       let result;
@@ -166,13 +130,26 @@ export async function runAgent(userText, { history = [], isAdmin = false } = {})
       } catch (err) {
         result = { error: true, tool: name, message: err.message };
       }
-      // 记录天气工具的原始结果(供最终回复原样展示 JSON)
+
+      // 天气工具:原始 spotConditions 用于 .txt 附件
       if (WEATHER_TOOLS.has(name) && result && !result.error) weatherResults.push(result);
-      messages.push({
-        role: 'tool',
-        tool_call_id: call.id,
-        content: JSON.stringify(result),
-      });
+
+      // analyzeFishing:分析文字直接当最终回复;其 conditions 也做成 .txt 附件。
+      // 不把庞大的 conditions 塞回模型上下文(短路后也用不到),只回一个精简结果。
+      let toolContent = result;
+      if (name === 'analyzeFishing' && result && !result.error && result.analysis) {
+        fishingAnalysis = result.analysis;
+        if (result.conditions) weatherResults.push(result.conditions);
+        toolContent = { analysis: result.analysis };
+      }
+
+      messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(toolContent) });
+    }
+
+    // analyzeFishing 已给出最终措辞 → 直接用它,省掉再让模型转述一遍(避免改写/多花一轮)
+    if (fishingAnalysis) {
+      finalText = fishingAnalysis;
+      break;
     }
   }
 
