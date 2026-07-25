@@ -169,17 +169,28 @@ function buildCurrent(coops, nws, ndbc, tz, unitSystem) {
  * 返回 [{ type:'High'|'Low', time(本地), height }, ...],按时间升序。空则 []。
  * "下一次高潮" = 清单里 type='High' 且时间晚于当前时间的第一条(由分析层判断)。
  */
-function localizeExtremes(pred, tz) {
-  const evs = [];
-  const add = (e, type) => {
-    if (e && e.time) evs.push({ type, _utc: e.time, time: toLocal(e.time, tz), height: e.height });
-  };
-  add(pred?.firstHighTide, 'High');
-  add(pred?.secondHighTide, 'High');
-  add(pred?.firstLowTide, 'Low');
-  add(pred?.secondLowTide, 'Low');
+function localizeExtremes(pred, tz, filterDate = null) {
+  let evs = [];
+  if (Array.isArray(pred?.extremes) && pred.extremes.length) {
+    // 首选 coops 返回的【全部】事件
+    evs = pred.extremes
+      .filter((e) => e && e.time)
+      .map((e) => ({ type: e.type, _utc: e.time, time: toLocal(e.time, tz), height: e.height }));
+  } else {
+    // 兜底:旧的 first/second 字段
+    const add = (e, type) => {
+      if (e && e.time) evs.push({ type, _utc: e.time, time: toLocal(e.time, tz), height: e.height });
+    };
+    add(pred?.firstHighTide, 'High');
+    add(pred?.secondHighTide, 'High');
+    add(pred?.firstLowTide, 'Low');
+    add(pred?.secondLowTide, 'Low');
+  }
   evs.sort((a, b) => new Date(a._utc) - new Date(b._utc));
-  return evs.map(({ type, time, height }) => ({ type, time, height })); // 去掉内部 _utc
+  let out = evs.map(({ type, time, height }) => ({ type, time, height })); // 去掉内部 _utc
+  // filterDate('YYYY-MM-DD',钓点本地日期):只保留当天事件(未来某天=当天 0点–24点)
+  if (filterDate) out = out.filter((e) => typeof e.time === 'string' && e.time.slice(0, 10) === filterDate);
+  return out;
 }
 
 /** 就近解析三类站点(潮汐/潮流/浮标),一次解析、后续复用 */
@@ -203,7 +214,7 @@ async function resolveStations(lat, lng, errors) {
  *   风速统一成节/(m·s),与 current 块口径一致。
  *   tideExtremes(未来窗口高低潮)来自 coops;alerts 来自 nws。
  */
-function buildPredict(coops, nws, tz, unitSystem) {
+function buildPredict(coops, nws, tz, unitSystem, filterDate = null) {
   const cHourly = coops?.prediction?.hourly || [];
   const nHourly = nws?.prediction?.hourly || [];
   const cMap = new Map(cHourly.map((h) => [h.time, h]));
@@ -239,8 +250,8 @@ function buildPredict(coops, nws, tz, unitSystem) {
   });
 
   return {
-    // 未来窗口内高低潮(时间转本地)
-    tideExtremes: localizeExtremes(coops?.prediction, tz),
+    // 未来窗口内高低潮(时间转本地;未来某天按 filterDate 过滤到当天 0–24 点)
+    tideExtremes: localizeExtremes(coops?.prediction, tz, filterDate),
     hourly,
     alerts: nws?.alerts || [],
     units:
@@ -288,11 +299,18 @@ export async function getPredictConditions(lat, lng, { name = null, note = null,
   // 预测不用浮标(NDBC 无预报),只取潮汐/潮流站
   const { tideStation, currentStation } = await resolveStations(lat, lng, errors);
 
+  // 「今天」vs「未来某天」两套潮汐窗口(美东本地日期判定):
+  //   未来某天 → coops 从目标日 UTC 0点起拉 30h(足以覆盖本地 00:00–24:00),再按本地日期过滤到当天 0–24 点
+  //   今天/未指定 → coops 从【现在】起拉 24h("从现在到 24 小时之后"的滚动窗口),不过滤
+  const etToday = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const isFutureDay = !!date && date !== etToday;
+  const coopsDate = isFutureDay ? date : undefined; // undefined → coops begin=现在
+  const coopsHours = isFutureDay ? 30 : 24;
+
   // 预测源(coops 潮 + nws 天气)并发 + 常驻块
   const [nws, coops, astronomy, bathymetry, usgs] = await Promise.all([
     settle('nationalWeatherService', getNationalWeatherService(lat, lng, { mode: 'prediction', unitSystem }), errors),
-    // hours=30:从目标日 UTC 0点起拉 30h,确保覆盖目标日本地 00:00–24:00 全天潮汐(含晚间)
-    settle('noaaCoops', getNoaaCoops(lat, lng, { tideStation, currentStation, date, hours: 30, mode: 'prediction', unitSystem }), errors),
+    settle('noaaCoops', getNoaaCoops(lat, lng, { tideStation, currentStation, date: coopsDate, hours: coopsHours, mode: 'prediction', unitSystem }), errors),
     settle('astronomy', getAstronomy(lat, lng, { date }), errors),
     settle('noaaBathymetry', getNoaaBathymetry(lat, lng, { unitSystem }), errors),
     settle('usgsWaterData', getUsgsWaterData(lat, lng, { mode: 'current', unitSystem }), errors),
@@ -306,7 +324,8 @@ export async function getPredictConditions(lat, lng, { name = null, note = null,
     longitude: lng,
     date: astronomy?.date || null,
     currentTime: toLocal(new Date().toISOString(), timezone), // 请求当下的钓点本地时间
-    predictTideAndWeather: buildPredict(coops, nws, timezone, unitSystem),
+    // 未来某天:过滤到目标本地日期(当天 0–24 点);今天/未指定:滚动窗口不过滤
+    predictTideAndWeather: buildPredict(coops, nws, timezone, unitSystem, isFutureDay ? date : null),
     common: buildCommon(astronomy, bathymetry, usgs, timezone),
     errors,
   };

@@ -104,6 +104,7 @@ async function buildPrediction(tideStationId, currentStation, begin, hours, unit
     firstLowTide: null,
     secondHighTide: null,
     secondLowTide: null,
+    extremes: [], // 窗口内【全部】高低潮事件(按时间),[{ time, height, type:'High'|'Low' }]
     hourly: [], // [{ time, waterLevel, speed, direction }]
   };
 
@@ -121,6 +122,10 @@ async function buildPrediction(tideStationId, currentStation, begin, hours, unit
     prediction.secondHighTide = pick(highs[1]);
     prediction.firstLowTide = pick(lows[0]);
     prediction.secondLowTide = pick(lows[1]);
+    // 全部事件(不再只留前两个),类型归一化为 High/Low,供上层做全天/滚动窗口展示
+    prediction.extremes = ex
+      .filter((e) => e.time)
+      .map((e) => ({ time: e.time, height: e.height, type: e.type === 'H' ? 'High' : 'Low' }));
   }
 
   // (2) 逐小时潮流:interval=60 → 建 时间->{speed,direction} 映射

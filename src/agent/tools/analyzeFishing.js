@@ -48,10 +48,10 @@ Prediction Mode: Current Time -> currentTime; Prediction -> predictTideAndWeathe
 Water Temperature: Current Mode -> currentTideAndWeather.waterTemp; Prediction Mode -> if unavailable output "No data". Never use air temperature as water temperature.
 Wind Direction: Current Mode -> prefer wind.cardinal (if unavailable "No data"); Prediction Mode -> hourly.windDirection.
 Moon: use common.moonPhase. Moon Illumination: use common.moonIllumination. Never infer moon phase from illumination.
-Tides (mode-aware): tideExtremes is a CHRONOLOGICAL list of tide events, each { type: "High" | "Low", time, height }, already sorted by time (it naturally alternates high/low).
-- If the JSON has currentTideAndWeather (CURRENT), OR it has predictTideAndWeather AND the requested date equals today's date (the date part of Current Time): report the NEXT High Tide and the NEXT Low Tide (the first future event of each type after Current Time), then list the following upcoming events in time order, e.g. "Next High 18:01 (3.19 ft); Next Low 00:20 (0.74 ft); then 06:19 High 2.68 ft".
-- If the JSON has predictTideAndWeather for a FUTURE date (not today): report that day's FULL tide schedule from 00:00 to 24:00 — list every event whose local date matches the requested date, in time order, e.g. "00:20 Low 0.74 ft -> 06:19 High 2.68 ft -> 11:45 Low 0.61 ft -> 18:47 High 3.29 ft". Do NOT collapse it into a single next-high/next-low.
-If the list is empty (or no matching event), output "No data".
+Tides (mode-aware): tideExtremes is a CHRONOLOGICAL list of tide events, each { type: "High" | "Low", time, height }, already sorted by time (it naturally alternates high/low). It already contains exactly the right window for the request, so just present it as-is.
+- CURRENT mode (currentTideAndWeather present): report the NEXT High Tide and the NEXT Low Tide (the first future event of each type after Current Time), then the following upcoming events in time order, e.g. "Next High 18:01 (3.19 ft); Next Low 00:20 (0.74 ft); then 06:19 High 2.68 ft".
+- PREDICTION mode (predictTideAndWeather present): list ALL events in tideExtremes in time order, e.g. "00:20 Low 0.74 ft -> 06:19 High 2.68 ft -> 11:45 Low 0.61 ft -> 18:47 High 3.29 ft". Do NOT collapse it into a single next-high/next-low.
+If the list is empty, output "No data".
 Prediction Hour Selection: use the hourly forecast matching the requested fishing time. If a time range is requested, evaluate the entire range.
 
 ================== OUTPUT FORMAT ==================
@@ -125,10 +125,8 @@ export default {
     additionalProperties: false,
   },
   async execute({ latitude, longitude, name, note, mode, date, unitSystem } = {}, context = {}) {
-    // 目标日期==今天(美东)视为"问现在" → 走 current(next high/low),而非未来某天的全天潮汐表
-    const etToday = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-    const isTodayDate = !!date && date === etToday;
-    const predict = (mode === 'prediction' || !!date) && !isTodayDate;
+    // 现在=current;今天/未来某天=prediction(窗口差异由 getPredictConditions 内部按日期处理)
+    const predict = mode === 'prediction' || !!date;
     const conditions = predict
       ? await getPredictConditions(latitude, longitude, { name, note, date, unitSystem })
       : await getCurrentConditions(latitude, longitude, { name, note, unitSystem });
