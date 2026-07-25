@@ -87,8 +87,8 @@ If the JSON contains predictTideAndWeather -> analyze FUTURE conditions.
 Never mix fields between the two modes.
 
 ================== FIELD MAPPING ==================
-Current Mode: Current Time -> currentTime; Tide -> tideExtremes; Weather -> currentTideAndWeather; Sun/Moon/Water Depth -> common.
-Prediction Mode: Current Time -> currentTime; Prediction -> predictTideAndWeather; Tide -> predictTideAndWeather.tideExtremes; Hourly Forecast -> predictTideAndWeather.hourly; Sun/Moon/Water Depth -> common.
+Current Mode: Current Time -> currentTime; Tide -> tideExtremes; Weather -> currentTideAndWeather; Alerts -> currentTideAndWeather.alerts; Sun/Moon/Water Depth -> common.
+Prediction Mode: Current Time -> currentTime; Prediction -> predictTideAndWeather; Tide -> predictTideAndWeather.tideExtremes; Hourly Forecast -> predictTideAndWeather.hourly; Alerts -> predictTideAndWeather.alerts; Sun/Moon/Water Depth -> common.
 
 ================== SPECIAL RULES ==================
 Water Temperature: Current Mode -> currentTideAndWeather.waterTemp; Prediction Mode -> if unavailable output "No data". Never use air temperature as water temperature.
@@ -99,6 +99,7 @@ Tides (mode-aware): tideExtremes is a CHRONOLOGICAL list of tide events, each { 
 - PREDICTION mode (predictTideAndWeather present): list ALL events in tideExtremes in time order, e.g. "00:20 Low 0.74 ft -> 06:19 High 2.68 ft -> 11:45 Low 0.61 ft -> 18:47 High 3.29 ft". Do NOT collapse it into a single next-high/next-low.
 If the list is empty, output "No data".
 Prediction Hour Selection: use the hourly forecast matching the requested fishing time. If a time range is requested, evaluate the entire range.
+Alerts: the alerts array holds active NWS advisories/warnings, each { event, headline, severity, isMarine, effective, expires }. Report each one (prefer marine-related alerts, isMarine=true). If the array is empty, there are no active alerts.
 
 ================== OUTPUT FORMAT ==================
 Current Time:
@@ -110,6 +111,7 @@ Water Temperature:
 Wind:
 Air Temperature:
 Weather:
+Alerts:
 Wave Height:
 Wave Period:
 Current Speed:
@@ -197,13 +199,14 @@ export default {
       '(CURRENT mode: Next High / Next Low / then each following event, one per line; PREDICTION mode: every event in time order, one per line, e.g. "04:24 Low 0.843 ft"). Do NOT use arrows.\n' +
       '4) Water Temperature (label + value on one line).\n' +
       '5) Wind, then Air Temperature, then Weather:\n' +
-      '5) Wind, then Air Temperature, then Weather:\n' +
       '   - CURRENT mode: label + the single current value on one line each.\n' +
       '   - PREDICTION mode: the JSON has a precomputed "hourlyBlocks" array, already grouped into fixed 3-hour clock blocks in order. ' +
       'Print the label ALONE, then ONE line per block. Under Wind: "<range> <block.wind>"; under Air Temperature: "<range> <block.airTemp>"; under Weather: "<range> <block.weather>" ' +
       '(use each block\'s range field, e.g. "00:00-02:59"). Use hourlyBlocks EXACTLY as given — do NOT invent times, do NOT sample individual hours, do NOT merge blocks. Skip a field only if it is null.\n' +
-      '7) Each target species with its star rating, one line each.\n' +
-      '8) Best Fishing Window (label + value).\n' +
+      '6) One line for precipitation and thunderstorm probability (e.g. "Precip 0%, Thunderstorm 0%"; PREDICTION mode: use the day\'s highest).\n' +
+      '7) An "Alerts:" label, then each active alert on its own line (event name; add the headline if concise). If the alerts array is empty, write "No active alerts" on the same line as the label.\n' +
+      '8) Each target species with its star rating, one line each.\n' +
+      '9) Best Fishing Window (label + value).\n' +
       'Put NOTHING else in PART 1.\n' +
       "PART 2 (after ===FULL===) = the COMPLETE report exactly as specified above (all OUTPUT FORMAT fields, full ANALYSIS, " +
       "per-species ratings with one-line reasons, FINAL VERDICT, and Today's Best Targets).";
