@@ -52,6 +52,11 @@ export const config = {
   // Telegram 传输(可选):配了 token 才启用,与企业微信并存
   telegram: {
     token: process.env.TELEGRAM_BOT_TOKEN || '',
+    // 白名单:逗号分隔的用户名或数字 id(不区分大小写)。留空=对所有人开放。
+    allowed: (process.env.TELEGRAM_ALLOWED || '')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
   },
 
   // 部署通知:app 启动上线后主动给这个 chatId(单聊=userid)推一条"已更新"消息

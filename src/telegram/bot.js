@@ -53,8 +53,21 @@ export function startTelegram({ onMessage } = {}) {
     const text = msg?.text?.trim();
     const chatId = msg?.chat?.id;
     if (!text || chatId == null) return;
-    const userId = msg.from?.username || String(msg.from?.id || '');
-    console.log(`[tg] 收到来自 ${userId} 的消息: ${text}`);
+    const username = msg.from?.username || '';
+    const uid = String(msg.from?.id || '');
+    const who = username || uid;
+    console.log(`[tg] 收到来自 ${who} (id=${uid}) 的消息: ${text}`);
+
+    // 白名单:allowed 非空时,只放行用户名或数字 id 命中的人(省 OpenAI 额度)
+    const allowed = config.telegram.allowed;
+    if (allowed.length && !allowed.includes(username.toLowerCase()) && !allowed.includes(uid)) {
+      console.log(`[tg] 拒绝(不在白名单): ${who} id=${uid}`);
+      await sendMessage(
+        chatId,
+        `大哥,你还没被授权使用 fishHelper。把下面这行发给管理员加白名单:\n@${username || '(无用户名)'}  id=${uid}`
+      ).catch(() => {});
+      return;
+    }
 
     // 输入中... 提示(失败无所谓)
     call('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {});
