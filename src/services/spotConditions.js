@@ -164,15 +164,22 @@ function buildCurrent(coops, nws, ndbc, tz, unitSystem) {
   };
 }
 
-/** 把 coops.prediction 的四个高低潮极值时间转本地(缺则 null)*/
+/**
+ * 把 coops.prediction 的高低潮极值整理成**按时间排序的事件清单**(而非 first/second 命名,避免歧义)。
+ * 返回 [{ type:'High'|'Low', time(本地), height }, ...],按时间升序。空则 []。
+ * "下一次高潮" = 清单里 type='High' 且时间晚于当前时间的第一条(由分析层判断)。
+ */
 function localizeExtremes(pred, tz) {
-  const loc = (e) => (e && e.time ? { time: toLocal(e.time, tz), height: e.height } : null);
-  return {
-    firstHighTide: loc(pred?.firstHighTide),
-    firstLowTide: loc(pred?.firstLowTide),
-    secondHighTide: loc(pred?.secondHighTide),
-    secondLowTide: loc(pred?.secondLowTide),
+  const evs = [];
+  const add = (e, type) => {
+    if (e && e.time) evs.push({ type, _utc: e.time, time: toLocal(e.time, tz), height: e.height });
   };
+  add(pred?.firstHighTide, 'High');
+  add(pred?.secondHighTide, 'High');
+  add(pred?.firstLowTide, 'Low');
+  add(pred?.secondLowTide, 'Low');
+  evs.sort((a, b) => new Date(a._utc) - new Date(b._utc));
+  return evs.map(({ type, time, height }) => ({ type, time, height })); // 去掉内部 _utc
 }
 
 /** 就近解析三类站点(潮汐/潮流/浮标),一次解析、后续复用 */

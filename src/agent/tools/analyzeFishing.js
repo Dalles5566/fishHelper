@@ -48,7 +48,7 @@ Prediction Mode: Current Time -> currentTime; Prediction -> predictTideAndWeathe
 Water Temperature: Current Mode -> currentTideAndWeather.waterTemp; Prediction Mode -> if unavailable output "No data". Never use air temperature as water temperature.
 Wind Direction: Current Mode -> prefer wind.cardinal (if unavailable "No data"); Prediction Mode -> hourly.windDirection.
 Moon: use common.moonPhase. Moon Illumination: use common.moonIllumination. Never infer moon phase from illumination.
-Next High/Low Tide: determine the NEXT tide event relative to the analysis time. Never assume firstHighTide is the next high tide. Choose the nearest future tide event.
+Next High/Low Tide: tideExtremes is a CHRONOLOGICAL list of tide events, each { type: "High" | "Low", time, height }, sorted by time. The Next High Tide = the FIRST event with type "High" whose time is after Current Time; the Next Low Tide = the first "Low" event after Current Time. Only output "No data" if the list is empty or contains no such future event.
 Prediction Hour Selection: use the hourly forecast matching the requested fishing time. If a time range is requested, evaluate the entire range.
 
 ================== OUTPUT FORMAT ==================
