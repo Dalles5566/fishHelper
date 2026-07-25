@@ -59,9 +59,10 @@ export const config = {
       .filter(Boolean),
   },
 
-  // 部署通知:app 启动上线后主动给这个 chatId(单聊=userid)推一条"已更新"消息
+  // 部署通知:app 启动上线后主动推一条"已更新+commit"消息
   notify: {
-    chatId: process.env.DEPLOY_NOTIFY_CHATID || '',
+    chatId: process.env.DEPLOY_NOTIFY_CHATID || '', // 企业微信 userid(留空=不发企业微信)
+    telegramChatId: process.env.DEPLOY_NOTIFY_TG_CHATID || '', // Telegram 数字 chat_id(留空=不发 tg)
   },
 
   // NWS(api.weather.gov)要求请求头带 User-Agent 标识应用与联系方式

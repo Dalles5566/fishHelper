@@ -25,14 +25,28 @@ function main() {
     return runAgent(text);
   };
 
-  // 传输层一:企业微信智能机器人(WS 长连接)
+  // 传输层一:企业微信智能机器人(WS 长连接)。notifyChatId 传入才会发企业微信部署通知;
+  // 现在部署通知只发 Telegram,故不传(留空)。
   const client = startBot({
-    notifyChatId: config.notify.chatId, // 启动上线后给这个 chatId 推部署通知
+    notifyChatId: config.notify.chatId,
     onMessage,
   });
 
   // 传输层二:Telegram(可选,配了 TELEGRAM_BOT_TOKEN 才启用)
   const telegram = startTelegram({ onMessage });
+
+  // 部署通知 → 只发 Telegram(配了 DEPLOY_NOTIFY_TG_CHATID 且 telegram 启用时)
+  if (telegram && config.notify.telegramChatId) {
+    const sha = (process.env.GIT_SHA || 'dev').slice(0, 7);
+    const when = new Intl.DateTimeFormat('zh-CN', {
+      timeZone: 'America/New_York', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(new Date());
+    telegram
+      .sendMessage(config.notify.telegramChatId, `大哥,fishHelper 已更新上线 ✅\ncommit=${sha}\n上线时间=${when}(美东)`)
+      .then(() => console.log(`[tg] 部署通知已推送给 ${config.notify.telegramChatId} (commit=${sha})`))
+      .catch((err) => console.error('[tg] 部署通知发送失败:', err?.message || err));
+  }
 
   console.log(`[fishHelper] 已启动,等待消息…(commit=${process.env.GIT_SHA || 'dev'})`);
 
