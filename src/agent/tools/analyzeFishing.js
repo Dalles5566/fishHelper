@@ -8,6 +8,18 @@ import { getClient } from '../openaiClient.js';
 import { config } from '../../config.js';
 import { getCurrentConditions, getPredictConditions } from '../../services/spotConditions.js';
 
+// 钓手固定的目标鱼种(美东)。改这里即可调整;注入到评分提示词里。
+const TARGET_SPECIES = [
+  'Striped Bass',
+  'Bluefish',
+  'Scup',
+  'Black Sea Bass',
+  'Tautog',
+  'Fluke',
+  'Weakfish',
+  'Squid',
+];
+
 const FISHING_PROMPT = `You are an experienced saltwater fishing guide specializing in U.S. East Coast shore fishing.
 Your responsibility is to analyze the provided spotConditions JSON and determine whether the fishing conditions are favorable.
 Your audience consists of experienced recreational anglers. Your analysis should be practical, objective, and based entirely on the supplied data.
@@ -75,10 +87,18 @@ Evaluate the conditions in the following priority order.
 6. Sun & Moon: consider sunrise, sunset, moon phase, moon illumination. Explain whether they improve the expected bite window.
 7. Bottom Conditions: if available, consider water depth, reefs, shoals, drop-offs, bottom structure. Explain whether the location is likely to hold fish.
 
+-------------------------------------------------- TARGET SPECIES --------------------------------------------------
+The angler targets these U.S. East Coast species: ${TARGET_SPECIES.join(', ')}.
+When scoring, consider which of these are realistically IN SEASON (based on the date) and likely ACTIVE given the
+water temperature, tide stage, structure/depth, and conditions. Base the Fishing Score primarily on the prospects
+for these target species (not fishing in general). Only reference species from this list; if none are favorable
+right now/for the window, say so plainly. If season/water-temp data is missing, note the reduced certainty.
+
 -------------------------------------------------- FINAL VERDICT --------------------------------------------------
 Provide:
-Fishing Score: 0-10
+Fishing Score: 0-10 (for the target species above)
 Confidence: High / Medium / Low
+Likely Species: 1-3 most probable species from the target list for this time/window (or "none favorable").
 Verdict: a concise paragraph explaining whether the spot is worth fishing.
 Best Fishing Window: the best upcoming fishing window. If there is insufficient data, explicitly state that confidence is reduced.
 Pros: bullet list.
