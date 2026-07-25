@@ -43,7 +43,7 @@ function main() {
       hour: '2-digit', minute: '2-digit', hour12: false,
     }).format(new Date());
     telegram
-      .sendMessage(config.notify.telegramChatId, `大哥,fishHelper 已更新上线 ✅\ncommit=${sha}\n上线时间=${when}(美东)`)
+      .sendMessage(config.notify.telegramChatId, `fishHelper 已更新上线 ✅\ncommit=${sha}\n上线时间=${when}(美东)`)
       .then(() => console.log(`[tg] 部署通知已推送给 ${config.notify.telegramChatId} (commit=${sha})`))
       .catch((err) => console.error('[tg] 部署通知发送失败:', err?.message || err));
   }

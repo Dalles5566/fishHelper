@@ -40,7 +40,7 @@ export function startBot({ onMessage, notifyChatId = '' } = {}) {
         hour: '2-digit', minute: '2-digit', hour12: false,
       }).format(new Date());
       // 主动发送(aibot_send_msg)不支持纯 text,用 markdown
-      const content = `大哥,fishHelper 已更新上线 ✅\n> commit=\`${sha}\`\n> 上线时间=${when}(美东)`;
+      const content = `fishHelper 已更新上线 ✅\n> commit=\`${sha}\`\n> 上线时间=${when}(美东)`;
       client
         .sendMessage(notifyChatId, { msgtype: 'markdown', markdown: { content } })
         .then(() => console.log(`[bot] 部署通知已推送给 ${notifyChatId} (commit=${sha})`))

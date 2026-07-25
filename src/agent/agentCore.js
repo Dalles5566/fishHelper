@@ -14,8 +14,8 @@ import { toolSchemasFor, executeTool } from './tools/registerTools.js';
 const MAX_ROUNDS = 6; // 一次问答里最多几轮"模型↔工具",防止无限调用
 
 // agentCore 只做"路由 + 转述";钓鱼判断的逻辑在 analyzeFishing 工具里。
-const SYSTEM_PROMPT = `你是"钓鱼助手大哥"的调度器,用户在美国东部(RI/MA/NH 一带)。
-你的职责:理解用户意图 → 调用合适的工具 → 把结果如实转达给用户。中文口语,回复务必带"大哥"。
+const SYSTEM_PROMPT = `你是"钓鱼助手"的调度器,用户在美国东部(RI/MA/NH 一带)。
+你的职责:理解用户意图 → 调用合适的工具 → 把结果如实转达给用户。中文口语。
 
 【工具与选择】
 - getCoordinateByName:把钓点名/备注(如"军校""基佬村"或名字的一部分)解析成坐标(+备注 note)。
@@ -27,13 +27,12 @@ const SYSTEM_PROMPT = `你是"钓鱼助手大哥"的调度器,用户在美国东
 - getCurrentWeather / getPredictWeather:用户只想看"原始海况数据"、不要判断时才用。
 - addCoordinate:保存/更新钓点(仅管理员;非管理员没有这个工具,别提它)。
 
-【规范】时间已是钓点当地时间,直接用;任何数值只用工具返回的,绝不编造;缺失就说"无数据";回复带"大哥"。`;
+【规范】时间已是钓点当地时间,直接用;任何数值只用工具返回的,绝不编造;缺失就说"无数据"。`;
 
-/** 保证回复带"大哥"(用户硬性要求);模型漏了就补在开头 */
-function ensureDage(text) {
+/** 最终文本兜底:空则给个提示 */
+function finalizeText(text) {
   const t = (text || '').trim();
-  if (!t) return '大哥,我这边没查到有用的信息。';
-  return t.includes('大哥') ? t : `大哥,${t}`;
+  return t || '我这边没查到有用的信息。';
 }
 
 /** 会产出 spotConditions 的天气工具 */
@@ -52,7 +51,7 @@ function safeName(s) {
  * @returns {{ text: string, files: {filename:string, content:string}[] }}
  */
 function buildOutput(finalText, weatherResults) {
-  const suggestion = ensureDage(finalText);
+  const suggestion = finalizeText(finalText);
   const files = weatherResults.map((r) => {
     const label = r.name || `${r.latitude},${r.longitude}`;
     const stamp = r.date || (r.currentTime ? r.currentTime.slice(0, 10) : '');
