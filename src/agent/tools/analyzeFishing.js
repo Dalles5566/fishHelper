@@ -20,6 +20,52 @@ const TARGET_SPECIES = [
   'Squid',
 ];
 
+/** min-max 数字范围字符串;相等则单值。dp=小数位 */
+function fmtRange(min, max, dp = 0) {
+  if (min == null || max == null) return null;
+  const r = (n) => (dp ? Math.round(n * 10 ** dp) / 10 ** dp : Math.round(n));
+  return min === max ? String(r(min)) : `${r(min)}-${r(max)}`;
+}
+
+/**
+ * 把预测逐小时按【固定 3 小时钟点时段】分块(00:00-02:59, 03:00-05:59, ...),
+ * 每块给风(速度范围+方位)、气温(范围)、天气(最主要状况)。
+ * 保留出现顺序(滚动窗口可能从 12:00-14:59 开始并跨午夜),供摘要逐行渲染。
+ * @returns [{ range, wind, airTemp, weather }]
+ */
+function computeHourlyBlocks(hourly, unitSystem) {
+  const windUnit = unitSystem === 'metric' ? 'm/s' : 'kt';
+  const tempUnit = unitSystem === 'metric' ? '°C' : '°F';
+  const order = [];
+  const groups = new Map();
+  for (const h of hourly || []) {
+    const t = typeof h.time === 'string' ? h.time : null;
+    if (!t) continue;
+    const hh = Number(t.slice(11, 13)); // 本地小时(time 带本地偏移)
+    if (Number.isNaN(hh)) continue;
+    const start = Math.floor(hh / 3) * 3;
+    const label = `${String(start).padStart(2, '0')}:00-${String(start + 2).padStart(2, '0')}:59`;
+    if (!groups.has(label)) {
+      groups.set(label, []);
+      order.push(label);
+    }
+    groups.get(label).push(h);
+  }
+  return order.map((label) => {
+    const es = groups.get(label);
+    const speeds = es.map((e) => e.windSpeed).filter((v) => v != null);
+    const temps = es.map((e) => e.temperature).filter((v) => v != null);
+    const dirs = [...new Set(es.map((e) => e.windDirection).filter(Boolean))];
+    const freq = new Map();
+    for (const e of es) if (e.shortForecast) freq.set(e.shortForecast, (freq.get(e.shortForecast) || 0) + 1);
+    const weather = [...freq.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+    const spd = speeds.length ? fmtRange(Math.min(...speeds), Math.max(...speeds), 1) : null;
+    const wind = spd ? `${spd} ${windUnit}${dirs.length ? ' ' + dirs.join('/') : ''}` : dirs.join('/') || null;
+    const airTemp = temps.length ? `${fmtRange(Math.min(...temps), Math.max(...temps))}${tempUnit}` : null;
+    return { range: label, wind, airTemp, weather };
+  });
+}
+
 const FISHING_PROMPT = `You are an experienced saltwater fishing guide specializing in U.S. East Coast shore fishing.
 Your job is to analyze the provided spotConditions JSON and determine whether the fishing conditions are favorable.
 Always base your analysis ONLY on the supplied JSON. Use your fishing knowledge only to interpret the provided data, never to invent missing information.
@@ -27,7 +73,7 @@ Always base your analysis ONLY on the supplied JSON. Use your fishing knowledge 
 ================== GENERAL RULES ==================
 1. Never invent, estimate, interpolate, or assume any numeric value.
 2. Every number must come directly from the JSON.
-3. If a valu  a".
+3. If a value is null or missing, output "No data".
 4. Never fabricate: tide, weather, wind, water temperature, tidal current, wave conditions, moon phase, sunrise, sunset, fishing windows.
 5. Never mention JSON fields, APIs, or data sources.
 6. Be objective.
@@ -83,7 +129,6 @@ Evaluate the fishing conditions in the following priority order.
 ================== TARGET SPECIES ==================
 If the JSON contains targetSpecies, evaluate EVERY species in the list. Do NOT add, remove, or reorder species.
 Assign each species a star rating: 5 stars Excellent / 4 stars Very Good / 3 stars Fair / 2 stars Poor / 1 star Very Poor.
-Always render EXACTLY 5 star characters: filled ★ plus empty ☆ (e.g. 4/5 = "★★★★☆", 3/5 = "★★★☆☆"). Never omit the empty ☆.
 Each rating should consider the overall conditions (tide, tidal current, water temperature, wind, weather, wave conditions, time of day, sunrise/sunset, moon phase, moon illumination, water depth, bottom structure).
 Different species should usually receive different ratings; do not give every species the same score.
 Provide one concise sentence explaining each rating.
@@ -152,14 +197,21 @@ export default {
       '(CURRENT mode: Next High / Next Low / then each following event, one per line; PREDICTION mode: every event in time order, one per line, e.g. "04:24 Low 0.843 ft"). Do NOT use arrows.\n' +
       '4) Water Temperature (label + value on one line).\n' +
       '5) Wind, then Air Temperature, then Weather:\n' +
+      '5) Wind, then Air Temperature, then Weather:\n' +
       '   - CURRENT mode: label + the single current value on one line each.\n' +
-      '   - PREDICTION mode: the label ALONE, then a few "HH:MM value" lines sampled about every 3 hours across the forecast window (do NOT list every hour).\n' +
-      '6) One line for precipitation and thunderstorm probability (e.g. "Precip 0%, Thunderstorm 0%"; PREDICTION mode: use the day\'s highest).\n' +
+      '   - PREDICTION mode: the JSON has a precomputed "hourlyBlocks" array, already grouped into fixed 3-hour clock blocks in order. ' +
+      'Print the label ALONE, then ONE line per block. Under Wind: "<range> <block.wind>"; under Air Temperature: "<range> <block.airTemp>"; under Weather: "<range> <block.weather>" ' +
+      '(use each block\'s range field, e.g. "00:00-02:59"). Use hourlyBlocks EXACTLY as given — do NOT invent times, do NOT sample individual hours, do NOT merge blocks. Skip a field only if it is null.\n' +
       '7) Each target species with its star rating, one line each.\n' +
       '8) Best Fishing Window (label + value).\n' +
       'Put NOTHING else in PART 1.\n' +
       "PART 2 (after ===FULL===) = the COMPLETE report exactly as specified above (all OUTPUT FORMAT fields, full ANALYSIS, " +
       "per-species ratings with one-line reasons, FINAL VERDICT, and Today's Best Targets).";
+
+    // 预测模式:代码里预先把逐小时算成固定 3 小时时段块(风/气温/天气),摘要照着渲染,避免模型自行采样出错
+    if (predict) {
+      conditions.hourlyBlocks = computeHourlyBlocks(conditions.predictTideAndWeather?.hourly, unitSystem || 'english');
+    }
 
     // 目标鱼种随 JSON 一起给模型(提示词从 JSON 的 targetSpecies 读取并逐种评级)
     const payload = { ...conditions, targetSpecies: TARGET_SPECIES };
