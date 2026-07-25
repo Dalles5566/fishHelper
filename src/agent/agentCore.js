@@ -53,14 +53,16 @@ function safeName(s) {
  * 没调天气工具(纯查/存坐标)→ 只回建议、无附件。
  * @returns {{ text: string, files: {filename:string, content:string}[] }}
  */
-function buildOutput(finalText, weatherResults, lang = 'zh') {
-  const suggestion = finalizeText(finalText, lang);
-  const files = weatherResults.map((r) => {
-    const label = r.name || `${r.latitude},${r.longitude}`;
-    const stamp = r.date || (r.currentTime ? r.currentTime.slice(0, 10) : '');
-    return { filename: `${safeName(label)}_${stamp}.txt`, content: JSON.stringify(r, null, 2) };
-  });
-  return { text: suggestion, files };
+/** 由 spotConditions 生成附件文件名:钓点名(或坐标)_日期.txt */
+function spotFileName(c) {
+  const label = c?.name || `${c?.latitude},${c?.longitude}`;
+  const stamp = c?.date || (c?.currentTime ? c.currentTime.slice(0, 10) : '');
+  return `${safeName(label)}_${stamp}.txt`;
+}
+
+/** text = 聊天正文(摘要);files = 已在主循环里组装好的附件 */
+function buildOutput(finalText, files, lang = 'zh') {
+  return { text: finalizeText(finalText, lang), files };
 }
 
 /**
@@ -100,7 +102,7 @@ export async function runAgent(userText, { history = [], isAdmin = false } = {})
   ];
 
   const toolSchemas = toolSchemasFor(isAdmin); // 非管理员看不到 adminOnly 工具
-  const weatherResults = []; // 天气工具的原始 spotConditions,用于原样展示 JSON
+  const files = []; // 要发送的 .txt 附件(天气原始 JSON / analyzeFishing 的 JSON+完整分析)
   let finalText = null;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -136,16 +138,22 @@ export async function runAgent(userText, { history = [], isAdmin = false } = {})
         result = { error: true, tool: name, message: err.message };
       }
 
-      // 天气工具:原始 spotConditions 用于 .txt 附件
-      if (WEATHER_TOOLS.has(name) && result && !result.error) weatherResults.push(result);
+      // 天气工具:原始 spotConditions → 纯 JSON 附件
+      if (WEATHER_TOOLS.has(name) && result && !result.error) {
+        files.push({ filename: spotFileName(result), content: JSON.stringify(result, null, 2) });
+      }
 
-      // analyzeFishing:分析文字直接当最终回复;其 conditions 也做成 .txt 附件。
-      // 不把庞大的 conditions 塞回模型上下文(短路后也用不到),只回一个精简结果。
+      // analyzeFishing:摘要(summary)当聊天正文短路;附件 = 原始 JSON + 完整分析(full)。
+      // 不把庞大内容塞回模型上下文(短路后用不到),只回一个精简标记。
       let toolContent = result;
-      if (name === 'analyzeFishing' && result && !result.error && result.analysis) {
-        fishingAnalysis = result.analysis;
-        if (result.conditions) weatherResults.push(result.conditions);
-        toolContent = { analysis: result.analysis };
+      if (name === 'analyzeFishing' && result && !result.error && result.summary) {
+        fishingAnalysis = result.summary;
+        const c = result.conditions || {};
+        files.push({
+          filename: spotFileName(c),
+          content: JSON.stringify(c, null, 2) + '\n\n===== Fishing Analysis =====\n' + (result.full || ''),
+        });
+        toolContent = { summary: result.summary };
       }
 
       messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(toolContent) });
@@ -169,7 +177,7 @@ export async function runAgent(userText, { history = [], isAdmin = false } = {})
     finalText = finalCompletion.choices?.[0]?.message?.content;
   }
 
-  return buildOutput(finalText, weatherResults, lang);
+  return buildOutput(finalText, files, lang);
 }
 
 export default runAgent;

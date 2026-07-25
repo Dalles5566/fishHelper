@@ -1,8 +1,8 @@
 // ============================================================================
 // tool: analyzeFishing —— "这个钓点适不适合钓鱼"的专门分析器
 //   自动取海况(current 现在 / prediction 未来某天)→ 内部再调一次 LLM,
-//   用"资深海钓向导"提示词做判断 → 返回 { analysis(给用户的最终措辞), conditions(原始 spotConditions) }。
-//   钓鱼判断的"大脑"集中在这里;agentCore 只负责路由 + 原样转述 analysis。
+//   用"资深海钓向导"提示词做判断,产出两段 → 返回 { summary(精简摘要,发聊天), full(完整报告,拼进附件), conditions }。
+//   钓鱼判断的"大脑"集中在这里;agentCore 用 summary 作聊天正文,把 full 拼在 JSON 附件后面。
 // ============================================================================
 import { getClient } from '../openaiClient.js';
 import { config } from '../../config.js';
@@ -138,17 +138,32 @@ export default {
     const timeLine =
       '[Time format] Show local clock time as HH:MM (e.g. 05:34); Current Time may include the date. Never output the full ISO timestamp.';
 
-    // 目标鱼种随 JSON 一起给模型(新提示词从 JSON 的 targetSpecies 读取并逐种评级)
+    // 两段输出:PART 1 = 精简摘要(发聊天),PART 2 = 完整报告(拼进 .txt 附件)
+    const splitLine =
+      'Output in TWO parts separated by a line containing only "===FULL===".\n' +
+      'PART 1 (before ===FULL===) = a SHORT summary, one item per line, in this exact order: ' +
+      'Current Time; Sunrise / Sunset; Next High Tide; Next Low Tide; Water Temperature; Wind; Air Temperature; Weather; ' +
+      'then each target species with its star rating (one line each); then Best Fishing Window. Put NOTHING else in PART 1.\n' +
+      "PART 2 (after ===FULL===) = the COMPLETE report exactly as specified above (all OUTPUT FORMAT fields, full ANALYSIS, " +
+      "per-species ratings with one-line reasons, FINAL VERDICT, and Today's Best Targets).";
+
+    // 目标鱼种随 JSON 一起给模型(提示词从 JSON 的 targetSpecies 读取并逐种评级)
     const payload = { ...conditions, targetSpecies: TARGET_SPECIES };
 
     const completion = await getClient().chat.completions.create({
       model: config.openai.model,
       messages: [
-        { role: 'system', content: `${FISHING_PROMPT}\n\n${langLine}\n${timeLine}` },
+        { role: 'system', content: `${FISHING_PROMPT}\n\n${langLine}\n${timeLine}\n\n${splitLine}` },
         { role: 'user', content: 'spotConditions JSON:\n' + JSON.stringify(payload) },
       ],
     });
-    const analysis = completion.choices?.[0]?.message?.content || '';
-    return { analysis, conditions };
+
+    // 切成摘要 / 完整两段;没有切分标记则两者都用整段兜底
+    const raw = completion.choices?.[0]?.message?.content || '';
+    const marker = '===FULL===';
+    const i = raw.indexOf(marker);
+    const summary = (i >= 0 ? raw.slice(0, i) : raw).trim();
+    const full = (i >= 0 ? raw.slice(i + marker.length) : raw).trim();
+    return { summary, full, conditions };
   },
 };
