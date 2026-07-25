@@ -27,7 +27,7 @@ Always base your analysis ONLY on the supplied JSON. Use your fishing knowledge 
 ================== GENERAL RULES ==================
 1. Never invent, estimate, interpolate, or assume any numeric value.
 2. Every number must come directly from the JSON.
-3. If a value is null or missing, output "No data".
+3. If a valu  a".
 4. Never fabricate: tide, weather, wind, water temperature, tidal current, wave conditions, moon phase, sunrise, sunset, fishing windows.
 5. Never mention JSON fields, APIs, or data sources.
 6. Be objective.
@@ -83,6 +83,7 @@ Evaluate the fishing conditions in the following priority order.
 ================== TARGET SPECIES ==================
 If the JSON contains targetSpecies, evaluate EVERY species in the list. Do NOT add, remove, or reorder species.
 Assign each species a star rating: 5 stars Excellent / 4 stars Very Good / 3 stars Fair / 2 stars Poor / 1 star Very Poor.
+Always render EXACTLY 5 star characters: filled ★ plus empty ☆ (e.g. 4/5 = "★★★★☆", 3/5 = "★★★☆☆"). Never omit the empty ☆.
 Each rating should consider the overall conditions (tide, tidal current, water temperature, wind, weather, wave conditions, time of day, sunrise/sunset, moon phase, moon illumination, water depth, bottom structure).
 Different species should usually receive different ratings; do not give every species the same score.
 Provide one concise sentence explaining each rating.
@@ -144,9 +145,19 @@ export default {
     // 两段输出:PART 1 = 精简摘要(发聊天),PART 2 = 完整报告(拼进 .txt 附件)
     const splitLine =
       'Output in TWO parts separated by a line containing only "===FULL===".\n' +
-      'PART 1 (before ===FULL===) = a SHORT summary, one item per line, in this exact order: ' +
-      'Current Time; Sunrise / Sunset; Tides (per the mode-aware tide rule); Water Temperature; Wind; Air Temperature; Weather; ' +
-      'then each target species with its star rating (one line each); then Best Fishing Window. Put NOTHING else in PART 1.\n' +
+      'PART 1 (before ===FULL===) = a SHORT summary. Put items on their own lines, in this EXACT order:\n' +
+      '1) Current Time (label + value on one line).\n' +
+      '2) Sunrise / Sunset (label + value on one line).\n' +
+      '3) A label line "Tides:" ALONE, then the tide info from the mode-aware tide rule with EACH event on its OWN line below it ' +
+      '(CURRENT mode: Next High / Next Low / then each following event, one per line; PREDICTION mode: every event in time order, one per line, e.g. "04:24 Low 0.843 ft"). Do NOT use arrows.\n' +
+      '4) Water Temperature (label + value on one line).\n' +
+      '5) Wind, then Air Temperature, then Weather:\n' +
+      '   - CURRENT mode: label + the single current value on one line each.\n' +
+      '   - PREDICTION mode: the label ALONE, then a few "HH:MM value" lines sampled about every 3 hours across the forecast window (do NOT list every hour).\n' +
+      '6) One line for precipitation and thunderstorm probability (e.g. "Precip 0%, Thunderstorm 0%"; PREDICTION mode: use the day\'s highest).\n' +
+      '7) Each target species with its star rating, one line each.\n' +
+      '8) Best Fishing Window (label + value).\n' +
+      'Put NOTHING else in PART 1.\n' +
       "PART 2 (after ===FULL===) = the COMPLETE report exactly as specified above (all OUTPUT FORMAT fields, full ANALYSIS, " +
       "per-species ratings with one-line reasons, FINAL VERDICT, and Today's Best Targets).";
 
