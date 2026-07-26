@@ -7,7 +7,6 @@
 import { getClient } from '../openaiClient.js';
 import { config } from '../../config.js';
 import { getCurrentConditions, getPredictConditions } from '../../services/spotConditions.js';
-import { findCoordinateByName, searchCoordinates } from '../../db/coordinates.js';
 
 // 钓手固定的目标鱼种(美东)。改这里即可调整;注入到评分提示词里。
 const TARGET_SPECIES = [
@@ -154,21 +153,14 @@ export default {
     'Judge whether a spot is good for fishing: auto-fetches conditions and returns a structured report ' +
     '(conditions summary + tide/current/wave/weather/water-temp/sun-moon/bottom analysis + fishing score, confidence, verdict, best window, pros/cons). ' +
     'Use this tool for ANY judgment question (is it good to fish / how is it / when should I go / now or later / ' +
-    'how about today/tomorrow / rising or falling), NOT getCurrentWeather/getPredictWeather (those return raw data only). ' +
-    'Pass the saved-spot `name` directly and it resolves the coordinates itself -- you do NOT need to call getCoordinateByName first. ' +
-    'Only pass latitude/longitude when the user gives a raw coordinate (no saved name).',
+    'how about today/tomorrow / rising or falling), NOT getCurrentWeather/getPredictWeather (those return raw data only).',
   parameters: {
     type: 'object',
     properties: {
-      name: {
-        type: 'string',
-        description:
-          'Saved fishing-spot name or keyword (a note nickname like "军校"/"基佬村" also works). ' +
-          'If given, coordinates are resolved from the database automatically -- omit latitude/longitude.',
-      },
-      latitude: { type: 'number', description: 'Latitude (only for a raw coordinate; omit if name is given)' },
-      longitude: { type: 'number', description: 'Longitude (only for a raw coordinate; omit if name is given)' },
-      note: { type: 'string', description: 'Spot note (optional; auto-filled when resolved by name)' },
+      latitude: { type: 'number', description: 'Latitude' },
+      longitude: { type: 'number', description: 'Longitude' },
+      name: { type: 'string', description: 'Spot name (from getCoordinateByName, optional)' },
+      note: { type: 'string', description: 'Spot note (optional)' },
       mode: {
         type: 'string',
         enum: ['current', 'prediction'],
@@ -177,36 +169,10 @@ export default {
       date: { type: 'string', description: 'Target date YYYY-MM-DD (when mode=prediction; omit = from now)' },
       unitSystem: { type: 'string', enum: ['english', 'metric'], description: 'default english' },
     },
-    required: [],
+    required: ['latitude', 'longitude'],
     additionalProperties: false,
   },
   async execute({ latitude, longitude, name, note, mode, date, unitSystem } = {}, context = {}) {
-    // 只给了钓点名(没给坐标)→ 内部查库解析,省掉 agent 先单独调 getCoordinateByName 的那一轮
-    if ((latitude == null || longitude == null) && name && name.trim()) {
-      const term = name.trim();
-      let spot = await findCoordinateByName(term); // ① 精确
-      if (!spot) {
-        const matches = await searchCoordinates(term); // ② 模糊(名字/备注)
-        if (matches.length === 1) spot = matches[0];
-        else if (matches.length > 1) {
-          return {
-            error: true,
-            tool: 'analyzeFishing',
-            message: `找到 ${matches.length} 个可能的钓点(${matches.map((m) => m.name).join('、')}),请让用户确认是哪一个`,
-          };
-        } else {
-          return { error: true, tool: 'analyzeFishing', message: `未找到与「${term}」相关的钓点` };
-        }
-      }
-      latitude = spot.latitude;
-      longitude = spot.longitude;
-      name = spot.name;
-      note = spot.note ?? note;
-    }
-    if (latitude == null || longitude == null) {
-      return { error: true, tool: 'analyzeFishing', message: '缺少坐标,也没有可识别的钓点名' };
-    }
-
     // 现在=current;今天/未来某天=prediction(窗口差异由 getPredictConditions 内部按日期处理)
     const predict = mode === 'prediction' || !!date;
     const conditions = predict
