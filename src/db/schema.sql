@@ -18,5 +18,6 @@ INSERT INTO coordinates (name, latitude, longitude, note) VALUES
   ('Fort Adams State Park', 41.479523389015256, -71.33548619254672, '倒数第二次去钓鱿鱼那'),
   ('Massachusetts Maritime Academy', 41.74006918866203, -70.62137421028096, '军校'),
   ('East Canal Lot Mainland Side', 41.77990024888963, -70.4891138957591, 'Canal 灯塔那里'),
-  ('Fishermen''s View Seafood Market & Restaurant', 41.772620636132665, -70.50446956734339, 'Canal对面')
+  ('Fishermen''s View Seafood Market & Restaurant', 41.772620636132665, -70.50446956734339, 'Canal对面'),
+  ('Church Woods Hole', 41.51560726125236, -70.65535288844315, '第一次钓鱼的地方')
 ON CONFLICT (lower(name)) DO NOTHING;
