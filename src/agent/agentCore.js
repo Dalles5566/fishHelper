@@ -96,6 +96,7 @@ async function extractIntent(userText) {
       { role: 'user', content: userText },
     ],
     response_format: { type: 'json_object' },
+    reasoning_effort: 'none', // 纯结构化提取,不需要推理
   });
   const raw = completion.choices?.[0]?.message?.content || '{}';
   return JSON.parse(raw);
@@ -204,6 +205,7 @@ async function runToolLoop(userText, { history = [], isAdmin = false, lang = 'zh
       messages,
       tools: toolSchemas,
       tool_choice: 'auto',
+      reasoning_effort: 'none', // 5.6 系列 + tools 需要;选工具不需要深度推理
     });
 
     const msg = completion.choices?.[0]?.message;
@@ -264,6 +266,7 @@ async function runToolLoop(userText, { history = [], isAdmin = false, lang = 'zh
     const finalCompletion = await client.chat.completions.create({
       model: config.openai.fastModel, // 轻量:轮数用尽后的兜底总结,同一条链路,继续用轻量模型
       messages: [...messages, { role: 'user', content: summaryAsk }],
+      reasoning_effort: 'none', // 5.6 系列兼容;总结不需要推理
     });
     finalText = finalCompletion.choices?.[0]?.message?.content;
   }
