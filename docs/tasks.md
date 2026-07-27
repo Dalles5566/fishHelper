@@ -246,10 +246,54 @@
 
 ---
 
+## ✅ 任务 14:两步式架构重构 + 双模型 + 单次输出(已上线)
+详见 design.md §11。
+- [x] **agentCore 重构为两步式**:extractIntent(轻量)→ type=analyze 走代码固定管道(查坐标→analyzeFishing)→ 其它走 function-calling 兜底
+- [x] **双模型**:`OPENAI_MODEL`(gpt-5.6-terra,analyzeFishing 报告)+ `OPENAI_MODEL_FAST`(gpt-5.6-luna,意图提取+兜底)
+- [x] **reasoning_effort:'none'**:5.6 系列 + tools 的 API 兼容性修复
+- [x] **单次输出**:LLM 只生成一段完整报告(删 splitLine);聊天摘要由 `extractSummary()` 代码提取
+- [x] **ANALYSIS 精简**:No data 不强行分析;FINAL VERDICT 只留 Best Fishing Window
+- [x] **潮汐格式修正**:current=逐行 Next High/Low;predict=逐行逐事件(不用箭头)
+- [x] **浪高/浪周期 3h 块**:加入 computeHourlyBlocks + FISHING_PROMPT 指令
+- [x] **mode 规则单一判定**:只在 intentPrompt 定,兜底通过 intentNote 复用(不重判)
+- [x] **语言注入修复**:兜底路径明确注入 `[Language]` 系统消息(修复英文问→中文回的 bug)
+- token 省约 **43%**(从 ~$0.037/次 → ~$0.021/次)
+
+**状态:已上线(gpt-5.6-terra + gpt-5.6-luna)**
+
+---
+
+## ✅ 任务 15:Discord 传输层(已上线)
+详见 design.md §12。
+- [x] `src/discord/bot.js`:discord.js gateway 连接,响应群消息 + DM
+- [x] 白名单 `DISCORD_ALLOWED`(留空=开放)
+- [x] 附件(AttachmentBuilder)+ 2000 字符分段
+- [x] 优雅退出 `discord.destroy()`
+- [x] `config.js` 加 `discord.token` + `discord.allowed`
+
+**状态:已上线(fishHelperBot#4652)**
+
+---
+
+## ✅ 任务 16:管理员前缀安全 + 交互按钮(已上线)
+详见 design.md §11.6 + §13。
+- [x] **ADMINS 平台前缀**:防跨平台用户名碰撞(`TG_`/`WECOM_`/`DISCORD_`)
+- [x] **Discord 按钮**:listSpots 返回 spots 时渲染 ActionRow 按钮,点击触发今天 prediction
+- [x] **Telegram InlineKeyboard**:同上,callback_query 触发分析
+- [x] **企业微信降级**:纯文本列表(无按钮)
+- [x] `findCoordinateById` 加入 DB 层(按钮回调用)
+
+**状态:已上线**
+
+---
+
 ## 决策记录
 - 传输:**企业微信智能机器人 + WebSocket 长连接**(`@wecom/aibot-node-sdk`)
 - 凭据:**botId + secret**(智能机器人),非自建应用 agentId/corpId
-- LLM:**OpenAI**(function calling),`OPENAI_MODEL` 可配,当前 **gpt-5.4**(曾 gpt-4o-mini)
+- LLM:**OpenAI**(function calling),双模型策略:
+  - `OPENAI_MODEL`=**gpt-5.6-terra**(analyzeFishing 报告,需深度推理)
+  - `OPENAI_MODEL_FAST`=**gpt-5.6-luna**(意图提取+兜底调度,reasoning_effort='none')
+  - 历史:gpt-4o-mini → gpt-5.4 → gpt-5.4+5.4-mini → gpt-5.6-terra+luna
 - 数据库:**Postgres**(pg)
 - 数据源:**NOAA CO-OPS / NDBC / NWS / USGS / NCEI DEM + suncalc**(全免费,适用美国)
 - 架构:**挑选+重组(curation)**,两个天气 tool 按问题路由:

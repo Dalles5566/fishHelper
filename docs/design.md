@@ -447,4 +447,62 @@ NWS 活跃预警(`currentTideAndWeather.alerts` / `predictTideAndWeather.alerts`
 中文提问→整段中文(含所有字段标题),英文提问→整段英文。
 
 > 备注:早期"每条回复叫用户'大哥'"的要求**已移除**(用户撤回),提示词与兜底文案均不再强制。
+
+## 11. 两步式架构:意图提取 + 固定管道(§10 后续重构)
+
+agentCore 从"function-calling 循环"重构为**两步式**,省 token + 更可预测:
+
+### 11.1 流程
+```
+runAgent(userText)
+ ├─ 第1步 extractIntent(轻量 LLM,gpt-5.6-luna,无工具 schema,reasoning_effort='none')
+ │       → { type:'analyze'|'other', spot, latitude, longitude, mode, date }
+ ├─ type='analyze' → runAnalyzeFast(代码固定管道,不回 LLM 选工具)
+ │       ① 查坐标(有 lat/lng 直接用;否则 spot 名查库 精确→模糊)
+ │       ② analyzeFishing.execute(内部取海况 + 第2次 LLM 出报告,gpt-5.6-terra)
+ │       ③ extractSummary(full) → 代码从完整报告里提取聊天框摘要
+ └─ 其它/未命中 → runToolLoop(原 function-calling 循环,gpt-5.6-luna,reasoning_effort='none')
+```
+
+### 11.2 双模型策略
+- **`OPENAI_MODEL`**(gpt-5.6-terra):analyzeFishing 出报告(需要深度推理+数值保真)
+- **`OPENAI_MODEL_FAST`**(gpt-5.6-luna):意图提取 + 兜底选工具(结构化任务,reasoning_effort='none')
+- 5.6 系列 + tools 需要 `reasoning_effort:'none'`(API 限制)
+
+### 11.3 单次输出 + 代码提取摘要
+- LLM 只生成**一段完整报告**(不再两段 PART 1/PART 2);`splitLine` 提示词已删除
+- 聊天框摘要由 `extractSummary(fullText)` 在代码里用正则按行提取(固定格式,稳定一致)
+- .txt 附件 = 原始 JSON + 完整报告(不变)
+- hourlyBlocks(3h 块:风/气温/天气/浪高/浪周期)在 FISHING_PROMPT SPECIAL RULES 里指示模型使用
+
+### 11.4 ANALYSIS 精简
+- 某项数据缺失(No data)→ 直接输出"No data",不强行分析
+- FINAL VERDICT 只留 **Best Fishing Window**(删掉 Fishing Score/Confidence/Verdict/Pros/Cons/Today's Best Targets)
+
+### 11.5 mode 规则单一判定
+- "现在/今天/明天 → mode+date" 的判定**只在 `intentPrompt`** 一处
+- 兜底路径通过 `intentNote(intent)` 传递已决定的 mode/date,不再重复推导
+
+### 11.6 管理员前缀
+- `ADMINS` 改为带平台前缀:`TG_<username|id>`, `WECOM_<userid>`, `DISCORD_<username|id>`
+- 防止跨平台用户名碰撞(不同平台同名≠同人)
+
+## 12. Discord 传输层
+
+`src/discord/bot.js`:使用 `discord.js` 库,WebSocket gateway 连接(无需公网 URL)。
+- 响应:群里所有消息 + 私聊 DM(不需要 @mention)
+- 白名单:`DISCORD_ALLOWED`(逗号分隔;留空=开放)
+- 附件:`.txt` 通过 `AttachmentBuilder` 发送
+- 消息超 2000 字符自动分段
+- 交互按钮(钓点选择):见 §13
+
+## 13. 交互式钓点选择按钮(Discord + Telegram)
+
+当 `getCoordinateByName` 返回全部钓点列表时,`runToolLoop` 透传 `spots` 数组:
+- **Discord**:渲染 `ActionRow` + `ButtonBuilder`(每行最多 5 个,每个按钮 = 钓点名)
+- **Telegram**:渲染 `InlineKeyboardMarkup`(每行 1 个按钮 = 钓点名)
+- **企业微信**:不支持交互卡片,降级为纯文本列表
+
+点击按钮 → 触发 `"spotName 今天怎么样?"` 走 `onMessage` → 走 analyze 快捷管道 → 回复分析报告。
+按钮本身不消耗额外 token(纯传输层渲染);点击后的分析跟手动输入完全一致。
 ```
