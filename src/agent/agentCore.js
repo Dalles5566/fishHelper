@@ -145,7 +145,6 @@ const MAX_ROUNDS = 6; // function-calling 兜底里最多几轮"模型↔工具"
 
 const SYSTEM_PROMPT = `You are the dispatcher for a fishing assistant. The user is on the US East Coast (RI/MA/NH area).
 Your job: understand the user's intent -> call the right tool(s) -> relay the result faithfully.
-[Language] Reply in the SAME language as the user's message (Chinese -> Chinese, English -> English).
 
 [Tools]
 - getCoordinateByName: resolve a saved spot name (or part of it, or its note like "军校"/"基佬村") into coordinates (+ note).
@@ -187,9 +186,13 @@ function intentNote(intent) {
 async function runToolLoop(userText, { history = [], isAdmin = false, lang = 'zh', intent = null } = {}) {
   const client = getClient();
   const note = intentNote(intent); // 把上游已决定的 mode/date/spot 带进来,兜底不再重复推导
+  const langNote = lang === 'en'
+    ? '[Language] The user wrote in English. Reply ENTIRELY in English.'
+    : '[Language] The user wrote in Chinese. Reply ENTIRELY in Chinese (中文).';
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
     { role: 'system', content: nowContext() },
+    { role: 'system', content: langNote },
     ...(note ? [{ role: 'system', content: note }] : []),
     ...history,
     { role: 'user', content: userText },
