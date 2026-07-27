@@ -71,7 +71,7 @@ export function startDiscord({ onMessage } = {}) {
 
     let result;
     try {
-      const isAdmin = config.admins.includes(username.toLowerCase()) || config.admins.includes(uid);
+      const isAdmin = config.admins.includes(`discord_${username.toLowerCase()}`) || config.admins.includes(`discord_${uid}`);
       result = await onMessage({ text, userId: who, chatId: msg.channel.id, isAdmin });
     } catch (err) {
       console.error('[discord] onMessage 处理异常:', err?.message || err);

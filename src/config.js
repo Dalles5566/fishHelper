@@ -52,7 +52,8 @@ export const config = {
     baseURL: process.env.OPENAI_BASE_URL || undefined,
   },
 
-  // 管理员身份(跨传输):逗号分隔的 tg 用户名/id 或企业微信 userid(不区分大小写)。
+  // 管理员身份(跨传输):逗号分隔,带平台前缀以防不同平台用户名碰撞。
+  // 格式:TG_<username|id>, WECOM_<userid>, DISCORD_<username|id>(不区分大小写）。
   // 只有管理员能用 adminOnly 工具(如 addCoordinate 添加钓点)。
   admins: (process.env.ADMINS || '')
     .split(',')
