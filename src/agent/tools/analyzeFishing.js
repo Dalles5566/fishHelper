@@ -66,6 +66,86 @@ function computeHourlyBlocks(hourly, unitSystem) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// extractSummary: 从完整报告里用行匹配提取聊天框需要的固定几项(代码决定摘要格式,不靠 LLM)
+// ---------------------------------------------------------------------------
+// 聊天框要的行(按顺序):
+//   Current Time / Sunrise·Sunset / Tides(多行) / Water Temperature /
+//   Wind(可能多行 block) / Air Temperature(同) / Weather(同) /
+//   降水·雷暴概率 / Alerts / 每个鱼种星级(不要理由) / Best Fishing Window
+// ---------------------------------------------------------------------------
+
+/** 从 full report 的标题行(冒号前)判断该行属于哪个 section */
+
+// 中英文都可能出现的 label(模型按 langLine 输出中文标题)
+// 每个 entry: { re: 匹配行首的正则, multi: 是否有多行续行(如潮汐列表、wind blocks) }
+const CHAT_FIELDS = [
+  { re: /^(Current Time|当前时间)\s*[：:]/i, multi: true },
+  { re: /^(Sunrise\s*\/\s*Sunset|日出\s*[/／]\s*日落)\s*[：:]/i, multi: true },
+  { re: /^(Tides|潮汐)\s*[：:]/i, multi: true },
+  { re: /^(Water Temperature|水温)\s*[：:]/i, multi: true },
+  { re: /^(Wind|风)\s*[：:]/i, multi: true },
+  { re: /^(Air Temperature|气温)\s*[：:]/i, multi: true },
+  { re: /^(Weather|天气)\s*[：:]/i, multi: true },
+  { re: /^(Precip|降水|雷暴概率|Thunderstorm)/i, multi: false },
+  { re: /^(Alerts|警报|预警)\s*[：:]/i, multi: true },
+  { re: /^(Best Fishing Window|最佳.*窗口|最佳.*时段)\s*[：:]/i, multi: true },
+];
+
+// 鱼种星级行:含 ★ 或 "X星" 的行(不管中英文)
+const SPECIES_LINE_RE = /[★☆]|[1-5]星/;
+
+// 新 section 开头(用来截断 multi-line 的连续抓取)
+const SECTION_HEADER_RE = /^(={3,}|-{3,}|Analysis|Target Species|Final Verdict|Style|情况分析|目标鱼种|最终结论|Moon Phase|月相|Moon Illumination|月照|Wave Height|浪高|Wave Period|浪周期|Current Speed|流速|Current Direction|流向|Water Depth|水深|Best Fishing Window|最佳.*窗口|最佳.*时段)/i;
+
+/**
+ * 从完整报告文本里提取聊天框摘要行。
+ *   - 只抓 CHAT_FIELDS 里定义的 label 行(及其续行,如潮汐/wind blocks)
+ *   - 含星级的行抓取(去掉理由)
+ *   - 分析性散文/ANALYSIS 大段文字一概跳过
+ */
+function extractSummary(fullText) {
+  const lines = (fullText || '').split('\n');
+  const out = [];
+  let curField = null; // 当前正在抓取的 field(null = 不在抓取状态)
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!trimmed) { curField = null; continue; }
+
+    // 检查是否命中某个 CHAT_FIELD label
+    const matched = CHAT_FIELDS.find((f) => f.re.test(trimmed));
+    if (matched) {
+      out.push(trimmed);
+      curField = matched.multi ? matched : null;
+      continue;
+    }
+
+    // 鱼种星级行 → 取鱼种+星级(截掉理由部分)
+    if (SPECIES_LINE_RE.test(trimmed) && !/^(Analysis|Target|情况分析|目标鱼种)/i.test(trimmed)) {
+      // 去掉 "- " 前缀 + 理由(" - xxx" / " — xxx" / 换行后的理由在前面已 curField=null 不会被抓)
+      const clean = trimmed.replace(/^[-•]\s*/, '').replace(/\s*[-—–]\s+.+$/, '').trim();
+      if (clean) out.push(clean);
+      curField = null;
+      continue;
+    }
+
+    // 续行:如果当前 field 是 multi,且行不像新 section → 继续抓
+    if (curField) {
+      // 新 section header / 另一个 CHAT_FIELD label → 停止
+      if (SECTION_HEADER_RE.test(trimmed) || CHAT_FIELDS.some((f) => f.re.test(trimmed))) {
+        curField = null;
+        i--; // re-process this line
+        continue;
+      }
+      out.push(trimmed);
+      continue;
+    }
+  }
+
+  return out.join('\n');
+}
+
 const FISHING_PROMPT = `You are an experienced saltwater fishing guide specializing in U.S. East Coast shore fishing.
 Your job is to analyze the provided spotConditions JSON and determine whether the fishing conditions are favorable.
 Always base your analysis ONLY on the supplied JSON. Use your fishing knowledge only to interpret the provided data, never to invent missing information.
@@ -100,6 +180,7 @@ Tides (mode-aware): tideExtremes is a CHRONOLOGICAL list of tide events, each { 
 If the list is empty, output "No data".
 Prediction Hour Selection: use the hourly forecast matching the requested fishing time. If a time range is requested, evaluate the entire range.
 Alerts: the alerts array holds active NWS advisories/warnings, each { event, headline, severity, isMarine, effective, expires }. Report each one (prefer marine-related alerts, isMarine=true). If the array is empty, there are no active alerts.
+Wind / Air Temperature / Weather in Prediction Mode: if the JSON contains an "hourlyBlocks" array, use it to present Wind, Air Temperature, and Weather as fixed 3-hour clock blocks (one line per block, e.g. "00:00-02:59 4.3-5.2 kt NE"). Use hourlyBlocks EXACTLY as given — do NOT list individual hours or invent different groupings.
 
 ================== OUTPUT FORMAT ==================
 Current Time:
@@ -120,8 +201,9 @@ Water Depth:
 
 ================== ANALYSIS ==================
 Evaluate the fishing conditions in the following priority order.
+For EACH point below, if its underlying data is missing/null (No data), simply output "No data" for that point -- do NOT force an analysis out of missing data, do NOT guess or reason around it.
 1. Tide: rising / falling / near slack. Explain how it affects fish activity.
-2. Tidal Current: speed, direction. If unavailable output No data. Do not estimate.
+2. Tidal Current: speed, direction.
 3. Wave Conditions: wave height, swell height, wave period. Explain whether the sea state is favorable and safe for shore fishing.
 4. Weather: wind speed, wind direction, wind gust, rain probability, thunderstorm probability, marine alerts. Explain how weather may influence fishing.
 5. Water Temperature: whether it is generally favorable for fish activity.
@@ -136,13 +218,7 @@ Different species should usually receive different ratings; do not give every sp
 Provide one concise sentence explaining each rating.
 
 ================== FINAL VERDICT ==================
-Fishing Score: 0-10
-Confidence: High / Medium / Low
-Verdict: one concise paragraph explaining the overall fishing conditions.
-Best Fishing Window: recommend the best upcoming fishing window. If confidence is reduced due to missing data, explicitly state that.
-Pros: bullet list.
-Cons: bullet list.
-Today's Best Targets: 🥇 best species / 🥈 second / 🥉 third (from the target list).
+Best Fishing Window: recommend the best upcoming fishing window, briefly explaining why (tide/current/weather/species reasoning).
 
 ================== STYLE ==================
 Write like an experienced fishing guide. Avoid repeating raw weather data. Focus on helping anglers decide: should they fish? when should they fish? which species are most likely to bite? Prefer practical fishing advice over weather reporting. Do not overstate certainty. If multiple factors conflict (e.g. excellent tide but thunderstorms), explain the trade-off.`;
@@ -189,28 +265,6 @@ export default {
     const timeLine =
       '[Time format] Show local clock time as HH:MM (e.g. 05:34); Current Time may include the date. Never output the full ISO timestamp.';
 
-    // 两段输出:PART 1 = 精简摘要(发聊天),PART 2 = 完整报告(拼进 .txt 附件)
-    const splitLine =
-      'Output in TWO parts separated by a line containing only "===FULL===".\n' +
-      'PART 1 (before ===FULL===) = a SHORT summary. Put items on their own lines, in this EXACT order:\n' +
-      '1) Current Time (label + value on one line).\n' +
-      '2) Sunrise / Sunset (label + value on one line).\n' +
-      '3) A label line "Tides:" ALONE, then the tide info from the mode-aware tide rule with EACH event on its OWN line below it ' +
-      '(CURRENT mode: Next High / Next Low / then each following event, one per line; PREDICTION mode: every event in time order, one per line, e.g. "04:24 Low 0.843 ft"). Do NOT use arrows.\n' +
-      '4) Water Temperature (label + value on one line).\n' +
-      '5) Wind, then Air Temperature, then Weather:\n' +
-      '   - CURRENT mode: label + the single current value on one line each.\n' +
-      '   - PREDICTION mode: the JSON has a precomputed "hourlyBlocks" array, already grouped into fixed 3-hour clock blocks in order. ' +
-      'Print the label ALONE, then ONE line per block. Under Wind: "<range> <block.wind>"; under Air Temperature: "<range> <block.airTemp>"; under Weather: "<range> <block.weather>" ' +
-      '(use each block\'s range field, e.g. "00:00-02:59"). Use hourlyBlocks EXACTLY as given — do NOT invent times, do NOT sample individual hours, do NOT merge blocks. Skip a field only if it is null.\n' +
-      '6) One line for precipitation and thunderstorm probability (e.g. "Precip 0%, Thunderstorm 0%"; PREDICTION mode: use the day\'s highest).\n' +
-      '7) An "Alerts:" label, then each active alert on its own line (event name; add the headline if concise). If the alerts array is empty, write "No active alerts" on the same line as the label.\n' +
-      '8) Each target species with its star rating, one line each.\n' +
-      '9) Best Fishing Window (label + value).\n' +
-      'Put NOTHING else in PART 1.\n' +
-      "PART 2 (after ===FULL===) = the COMPLETE report exactly as specified above (all OUTPUT FORMAT fields, full ANALYSIS, " +
-      "per-species ratings with one-line reasons, FINAL VERDICT, and Today's Best Targets).";
-
     // 预测模式:代码里预先把逐小时算成固定 3 小时时段块(风/气温/天气),摘要照着渲染,避免模型自行采样出错
     if (predict) {
       conditions.hourlyBlocks = computeHourlyBlocks(conditions.predictTideAndWeather?.hourly, unitSystem || 'english');
@@ -222,17 +276,14 @@ export default {
     const completion = await getClient().chat.completions.create({
       model: config.openai.model,
       messages: [
-        { role: 'system', content: `${FISHING_PROMPT}\n\n${langLine}\n${timeLine}\n\n${splitLine}` },
+        { role: 'system', content: `${FISHING_PROMPT}\n\n${langLine}\n${timeLine}` },
         { role: 'user', content: 'spotConditions JSON:\n' + JSON.stringify(payload) },
       ],
     });
 
-    // 切成摘要 / 完整两段;没有切分标记则两者都用整段兜底
-    const raw = completion.choices?.[0]?.message?.content || '';
-    const marker = '===FULL===';
-    const i = raw.indexOf(marker);
-    const summary = (i >= 0 ? raw.slice(0, i) : raw).trim();
-    const full = (i >= 0 ? raw.slice(i + marker.length) : raw).trim();
+    // LLM 只出一段完整报告;代码从里面提取聊天框摘要
+    const full = (completion.choices?.[0]?.message?.content || '').trim();
+    const summary = extractSummary(full);
     return { summary, full, conditions };
   },
 };
