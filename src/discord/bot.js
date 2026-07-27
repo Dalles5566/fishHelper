@@ -39,13 +39,13 @@ export function startDiscord({ onMessage } = {}) {
     // 忽略其它 bot
     if (msg.author.bot) return;
 
-    // 判断是否应该响应:私聊(DM)或被 @mention
-    const isDM = !msg.guild;
-    const isMentioned = msg.mentions.has(client.user);
-    if (!isDM && !isMentioned) return;
+    // 判断是否应该响应:私聊(DM)或群里的消息都回
+    // 忽略跟 bot 无关的系统消息(pin/join/boost 等)
+    if (!msg.content) return;
 
-    // 提取纯文本(去掉 @mention 标记)
+    // 提取纯文本(如果被 @mention 就去掉 @mention 标记)
     let text = msg.content.trim();
+    const isMentioned = msg.mentions.has(client.user);
     if (isMentioned) {
       text = text.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
     }
