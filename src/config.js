@@ -69,6 +69,16 @@ export const config = {
       .filter(Boolean),
   },
 
+  // Discord 传输(可选):配了 token 才启用,与企业微信/Telegram 并存
+  discord: {
+    token: process.env.DISCORD_BOT_TOKEN || '',
+    // 白名单:逗号分隔的 Discord 用户名或数字 user id(不区分大小写)。留空=对所有人开放。
+    allowed: (process.env.DISCORD_ALLOWED || '')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  },
+
   // 部署通知:app 启动上线后主动推一条"已更新+commit"消息
   notify: {
     chatId: process.env.DEPLOY_NOTIFY_CHATID || '', // 企业微信 userid(留空=不发企业微信)

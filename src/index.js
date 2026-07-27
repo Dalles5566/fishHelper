@@ -7,6 +7,7 @@
 import { assertConfig, config } from './config.js';
 import { startBot } from './wecom/bot.js';
 import { startTelegram } from './telegram/bot.js';
+import { startDiscord } from './discord/bot.js';
 import { runAgent } from './agent/agentCore.js';
 import { pool } from './db/pool.js';
 
@@ -35,6 +36,9 @@ function main() {
   // 传输层二:Telegram(可选,配了 TELEGRAM_BOT_TOKEN 才启用)
   const telegram = startTelegram({ onMessage });
 
+  // 传输层三:Discord(可选,配了 DISCORD_BOT_TOKEN 才启用)
+  const discord = startDiscord({ onMessage });
+
   // 部署通知 → 只发 Telegram(配了 DEPLOY_NOTIFY_TG_CHATID 且 telegram 启用时)
   if (telegram && config.notify.telegramChatId) {
     const sha = (process.env.GIT_SHA || 'dev').slice(0, 7);
@@ -61,6 +65,7 @@ function main() {
       if (typeof client?.disconnect === 'function') client.disconnect();
       else if (typeof client?.close === 'function') client.close();
       telegram?.stop();
+      discord?.destroy();
     } catch (err) {
       console.error('[fishHelper] 断开连接出错:', err?.message || err);
     }

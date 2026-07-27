@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@wecom/aibot-node-sdk": "^1.0.7",
+    "discord.js": "^14.27.0",
     "openai": "^4.67.3",
     "pg": "^8.13.0",
     "suncalc": "^2.0.1"
