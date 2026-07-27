@@ -77,19 +77,20 @@ Rules:
 - type = "analyze" for ANY fishing-judgment question about a place (is it good to fish / how is it /
   when to go / now or later / how about today/tomorrow / rising or falling). Everything else
   (list my spots, add/edit a spot, chit-chat, "just give me the raw tide/weather data") = "other".
+- spot = the place name exactly as the user wrote it (keep Chinese as-is, e.g. 基佬村/军校). null if the user gave only coordinates or no place.
+- latitude/longitude = only when the user typed raw numeric coordinates; otherwise null.
+- If the message is JUST a bare coordinate pair (e.g. "41.48, -71.33") with no place name and no time wording -> type=analyze, mode=current.
 - mode + date (date is null when mode=current or no date):
   * "now / right now / 现在 / 当前 / 目前" -> mode=current, no date.
   * "today / 今天 / tonight / 今晚" -> mode=prediction, date=<today>.  ("today/今天" is NOT "now" -- it means the whole day.)
   * "tomorrow / 明天 / 后天 / this weekend / 周末 / a specific day" -> mode=prediction, date=<that day>.
-  * Resolve relative dates to an absolute YYYY-MM-DD; never guess.
-- spot = the place name exactly as the user wrote it (keep Chinese as-is, e.g. 基佬村/军校). null if the user gave only coordinates or no place.
-- latitude/longitude = only when the user typed raw numeric coordinates; otherwise null.`;
+  * Resolve relative dates to an absolute YYYY-MM-DD; never guess.`;
 }
 
 async function extractIntent(userText) {
   const { dateStr } = etNow();
   const completion = await getClient().chat.completions.create({
-    model: config.openai.model,
+    model: config.openai.fastModel, // 轻量:只填 6 个固定字段的 JSON,不需要主力模型
     messages: [
       { role: 'system', content: intentPrompt(dateStr) },
       { role: 'user', content: userText },
@@ -199,7 +200,7 @@ async function runToolLoop(userText, { history = [], isAdmin = false, lang = 'zh
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const completion = await client.chat.completions.create({
-      model: config.openai.model,
+      model: config.openai.fastModel, // 轻量:选工具/转述,指令遵循型任务,不需要主力模型
       messages,
       tools: toolSchemas,
       tool_choice: 'auto',
@@ -261,7 +262,7 @@ async function runToolLoop(userText, { history = [], isAdmin = false, lang = 'zh
   if (finalText === null) {
     const summaryAsk = 'Based on the above, give the final reply directly (do not call any more tools).';
     const finalCompletion = await client.chat.completions.create({
-      model: config.openai.model,
+      model: config.openai.fastModel, // 轻量:轮数用尽后的兜底总结,同一条链路,继续用轻量模型
       messages: [...messages, { role: 'user', content: summaryAsk }],
     });
     finalText = finalCompletion.choices?.[0]?.message?.content;

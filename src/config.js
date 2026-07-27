@@ -45,7 +45,10 @@ export const config = {
 
   openai: {
     apiKey: process.env.OPENAI_API_KEY || '',
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    model: process.env.OPENAI_MODEL || 'gpt-5.4', // 主模型:analyzeFishing 用(需要精确遵循长规则 + 数值保真)
+    // 轻量模型:agentCore 的意图提取 + 兜底调度用(结构化抽取/选工具,任务简单,可用更便宜的模型)。
+    // 不配则退回主模型,行为与之前一致(零风险开关)。
+    fastModel: process.env.OPENAI_MODEL_FAST || process.env.OPENAI_MODEL || 'gpt-5.4',
     baseURL: process.env.OPENAI_BASE_URL || undefined,
   },
 
