@@ -45,3 +45,11 @@ export async function addCoordinate({ name, latitude, longitude, note }) {
   );
   return rows[0];
 }
+
+export async function findCoordinateById(id) {
+  const { rows } = await query(
+    'SELECT id, name, latitude, longitude, note, created_at FROM coordinates WHERE id = $1 LIMIT 1',
+    [id]
+  );
+  return rows[0] || null;
+}

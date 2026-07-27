@@ -4,6 +4,7 @@
 // 收到文本 → onMessage 返回 { text, files } → 先发 .txt 附件(sendDocument)再发文字。
 // ============================================================================
 import { config } from '../config.js';
+import { findCoordinateById } from '../db/coordinates.js';
 
 const api = (token, method) => `https://api.telegram.org/bot${token}/${method}`;
 
@@ -38,8 +39,8 @@ export function startTelegram({ onMessage } = {}) {
   }
 
   // Telegram 单条文本上限 4096
-  const sendMessage = (chatId, text) =>
-    call('sendMessage', { chat_id: chatId, text: String(text || '').slice(0, 4096) });
+  const sendMessage = (chatId, text, extra = {}) =>
+    call('sendMessage', { chat_id: chatId, text: String(text || '').slice(0, 4096), ...extra });
 
   const sendDocument = (chatId, filename, content) => {
     const form = new FormData();
@@ -49,6 +50,44 @@ export function startTelegram({ onMessage } = {}) {
   };
 
   async function handle(update) {
+    // ---- 按钮回调:钓点选择 → 触发今天 prediction 分析 ----
+    if (update.callback_query) {
+      const cb = update.callback_query;
+      const data = cb.data || '';
+      const cbChatId = cb.message?.chat?.id;
+      if (!data.startsWith('spot_') || !cbChatId) {
+        call('answerCallbackQuery', { callback_query_id: cb.id }).catch(() => {});
+        return;
+      }
+      // 应答回调(防止 Telegram 显示"加载中")
+      call('answerCallbackQuery', { callback_query_id: cb.id, text: '正在分析...' }).catch(() => {});
+      call('sendChatAction', { chat_id: cbChatId, action: 'typing' }).catch(() => {});
+
+      const spotId = Number(data.slice(5));
+      try {
+        const spot = await findCoordinateById(spotId);
+        if (!spot) {
+          await sendMessage(cbChatId, '钓点未找到,可能已被删除。');
+          return;
+        }
+        const username = cb.from?.username || '';
+        const uid = String(cb.from?.id || '');
+        const isAdmin = config.admins.includes(`tg_${username.toLowerCase()}`) || config.admins.includes(`tg_${uid}`);
+        const queryText = `${spot.name} 今天怎么样?`;
+        const result = await onMessage({ text: queryText, userId: username || uid, chatId: String(cbChatId), isAdmin });
+        const r = typeof result === 'string' ? { text: result, files: [] } : result;
+        for (const f of r.files || []) {
+          await sendDocument(cbChatId, f.filename, f.content).catch(() => {});
+        }
+        await sendMessage(cbChatId, (r.text && String(r.text).trim()) || '(无内容)');
+      } catch (err) {
+        console.error('[tg] 按钮回调处理异常:', err?.message || err);
+        await sendMessage(cbChatId, '抱歉,处理时出错了。').catch(() => {});
+      }
+      return;
+    }
+
+    // ---- 普通文本消息 ----
     const msg = update.message || update.edited_message;
     const text = msg?.text?.trim();
     const chatId = msg?.chat?.id;
@@ -90,7 +129,16 @@ export function startTelegram({ onMessage } = {}) {
       }
     }
     try {
-      await sendMessage(chatId, (result.text && String(result.text).trim()) || '(无内容)');
+      const extra = {};
+      // 如果有 spots 列表,渲染 inline keyboard(每行一个按钮)
+      if (Array.isArray(result.spots) && result.spots.length) {
+        extra.reply_markup = JSON.stringify({
+          inline_keyboard: result.spots.slice(0, 20).map((s) => [
+            { text: String(s.name), callback_data: `spot_${s.id}` },
+          ]),
+        });
+      }
+      await sendMessage(chatId, (result.text && String(result.text).trim()) || '(无内容)', extra);
     } catch (err) {
       console.error('[tg] 文本发送失败:', err?.message || err);
     }

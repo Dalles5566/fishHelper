@@ -3,8 +3,9 @@
 // 与企业微信/Telegram 并存,复用同一个 onMessage(→ runAgent)。
 // 收到文本(私聊 + @mention) → onMessage → { text, files } → 回复文字 + .txt 附件。
 // ============================================================================
-import { Client, GatewayIntentBits, Partials, AttachmentBuilder } from 'discord.js';
+import { Client, GatewayIntentBits, Partials, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { config } from '../config.js';
+import { findCoordinateById } from '../db/coordinates.js';
 
 /**
  * 启动 Discord bot。未配置 token 则跳过并返回 null。
@@ -91,13 +92,33 @@ export function startDiscord({ onMessage } = {}) {
 
     // 发回复(Discord 单条上限 2000 字符,超了截断)
     const replyText = (result.text && String(result.text).trim()) || '(无内容)';
+
+    // 如果有 spots 列表,渲染按钮(每行最多 5 个,Discord 上限)
+    const components = [];
+    if (Array.isArray(result.spots) && result.spots.length) {
+      const spots = result.spots.slice(0, 25); // Discord 最多 5 行 × 5 按钮 = 25
+      for (let i = 0; i < spots.length; i += 5) {
+        const row = new ActionRowBuilder();
+        for (const s of spots.slice(i, i + 5)) {
+          row.addComponents(
+            new ButtonBuilder()
+              .setCustomId(`spot_${s.id}`)
+              .setLabel(String(s.name).slice(0, 80))
+              .setStyle(ButtonStyle.Primary)
+          );
+        }
+        components.push(row);
+      }
+    }
+
     try {
       // 如果超 2000 字符,分段发送
       const chunks = splitText(replyText, 2000);
       for (let i = 0; i < chunks.length; i++) {
         const opts = { content: chunks[i] };
-        // 第一条带附件
+        // 第一条带附件 + 按钮
         if (i === 0 && attachments.length) opts.files = attachments;
+        if (i === 0 && components.length) opts.components = components;
         if (i === 0) {
           await msg.reply(opts);
         } else {
@@ -110,6 +131,48 @@ export function startDiscord({ onMessage } = {}) {
       }
     } catch (err) {
       console.error('[discord] 回复失败:', err?.message || err);
+    }
+  });
+
+  // ---- 按钮点击:钓点选择 → 触发今天 prediction 分析 ----
+  client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isButton()) return;
+    const customId = interaction.customId;
+    if (!customId.startsWith('spot_')) return;
+
+    const spotId = Number(customId.slice(5));
+    if (!spotId) return;
+
+    await interaction.deferReply(); // 先告诉 Discord "正在处理"(防 3 秒超时)
+
+    try {
+      const spot = await findCoordinateById(spotId);
+      if (!spot) {
+        await interaction.editReply({ content: '钓点未找到,可能已被删除。' });
+        return;
+      }
+
+      // 构造"今天怎么样"的请求,直接走 runAgent(复用 intent → analyze 快捷管道)
+      const username = interaction.user.username || '';
+      const uid = interaction.user.id;
+      const isAdmin = config.admins.includes(`discord_${username.toLowerCase()}`) || config.admins.includes(`discord_${uid}`);
+      const query = `${spot.name} 今天怎么样?`;
+      const result = await onMessage({ text: query, userId: username || uid, chatId: interaction.channel.id, isAdmin });
+
+      const r = typeof result === 'string' ? { text: result, files: [] } : result;
+      const attachments = [];
+      for (const f of r.files || []) {
+        attachments.push(new AttachmentBuilder(Buffer.from(f.content, 'utf8'), { name: f.filename }));
+      }
+
+      const chunks = splitText((r.text || '').trim() || '(无内容)', 2000);
+      await interaction.editReply({ content: chunks[0], files: attachments.length ? attachments : undefined });
+      for (let i = 1; i < chunks.length; i++) {
+        await interaction.followUp({ content: chunks[i] });
+      }
+    } catch (err) {
+      console.error('[discord] 按钮处理异常:', err?.message || err);
+      await interaction.editReply({ content: '抱歉,处理时出错了。' }).catch(() => {});
     }
   });
 

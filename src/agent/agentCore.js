@@ -200,6 +200,7 @@ async function runToolLoop(userText, { history = [], isAdmin = false, lang = 'zh
 
   const toolSchemas = toolSchemasFor(isAdmin); // 非管理员看不到 adminOnly 工具
   const files = []; // 要发送的 .txt 附件
+  let spots = null; // getCoordinateByName 列全部时,透传供传输层渲染选择按钮
   let finalText = null;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -241,6 +242,11 @@ async function runToolLoop(userText, { history = [], isAdmin = false, lang = 'zh
         files.push({ filename: spotFileName(result), content: JSON.stringify(result, null, 2) });
       }
 
+      // getCoordinateByName 列全部钓点:透传 spots 数组供传输层渲染按钮
+      if (name === 'getCoordinateByName' && result && Array.isArray(result.coordinates)) {
+        spots = result.coordinates;
+      }
+
       // analyzeFishing:摘要短路作正文;附件 = 原始 JSON + 完整分析。不把庞大内容塞回模型上下文。
       let toolContent = result;
       if (name === 'analyzeFishing' && result && !result.error && result.summary) {
@@ -274,7 +280,7 @@ async function runToolLoop(userText, { history = [], isAdmin = false, lang = 'zh
     finalText = finalCompletion.choices?.[0]?.message?.content;
   }
 
-  return buildOutput(finalText, files, lang);
+  return buildOutput(finalText, files, lang, spots);
 }
 
 // ============================================================================
@@ -324,9 +330,11 @@ function spotFileName(c) {
   return `${safeName(label)}_${stamp}.txt`;
 }
 
-/** text = 聊天正文(摘要);files = 附件 */
-function buildOutput(finalText, files, lang = 'zh') {
-  return { text: finalizeText(finalText, lang), files };
+/** text = 聊天正文(摘要);files = 附件;spots = 可选钓点列表(供传输层渲染按钮) */
+function buildOutput(finalText, files, lang = 'zh', spots = null) {
+  const out = { text: finalizeText(finalText, lang), files };
+  if (spots) out.spots = spots;
+  return out;
 }
 
 /** analyzeFishing 结果 → { text, files }:summary 作正文,原始 JSON + 完整分析拼进 .txt 附件 */
