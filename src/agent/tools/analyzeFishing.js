@@ -56,13 +56,17 @@ function computeHourlyBlocks(hourly, unitSystem) {
     const speeds = es.map((e) => e.windSpeed).filter((v) => v != null);
     const temps = es.map((e) => e.temperature).filter((v) => v != null);
     const dirs = [...new Set(es.map((e) => e.windDirection).filter(Boolean))];
+    const waves = es.map((e) => e.waveHeight).filter((v) => v != null);
+    const periods = es.map((e) => e.wavePeriod).filter((v) => v != null);
     const freq = new Map();
     for (const e of es) if (e.shortForecast) freq.set(e.shortForecast, (freq.get(e.shortForecast) || 0) + 1);
     const weather = [...freq.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
     const spd = speeds.length ? fmtRange(Math.min(...speeds), Math.max(...speeds), 1) : null;
     const wind = spd ? `${spd} ${windUnit}${dirs.length ? ' ' + dirs.join('/') : ''}` : dirs.join('/') || null;
     const airTemp = temps.length ? `${fmtRange(Math.min(...temps), Math.max(...temps))}${tempUnit}` : null;
-    return { range: label, wind, airTemp, weather };
+    const waveHeight = waves.length ? `${fmtRange(Math.min(...waves), Math.max(...waves), 1)} ft` : null;
+    const wavePeriod = periods.length ? `${fmtRange(Math.min(...periods), Math.max(...periods))} s` : null;
+    return { range: label, wind, airTemp, weather, waveHeight, wavePeriod };
   });
 }
 
@@ -88,6 +92,8 @@ const CHAT_FIELDS = [
   { re: /^(Air Temperature|气温)\s*[：:]/i, multi: true },
   { re: /^(Weather|天气)\s*[：:]/i, multi: true },
   { re: /^(Precip|降水|雷暴概率|Thunderstorm)/i, multi: false },
+  { re: /^(Wave Height|浪高)\s*[：:]/i, multi: true },
+  { re: /^(Wave Period|浪周期|浪潮周期)\s*[：:]/i, multi: true },
   { re: /^(Alerts|警报|预警)\s*[：:]/i, multi: true },
   { re: /^(Best Fishing Window|最佳.*窗口|最佳.*时段)\s*[：:]/i, multi: true },
 ];
@@ -96,7 +102,7 @@ const CHAT_FIELDS = [
 const SPECIES_LINE_RE = /[★☆]|[1-5]星/;
 
 // 新 section 开头(用来截断 multi-line 的连续抓取)
-const SECTION_HEADER_RE = /^(={3,}|-{3,}|Analysis|Target Species|Final Verdict|Style|情况分析|目标鱼种|最终结论|Moon Phase|月相|Moon Illumination|月照|Wave Height|浪高|Wave Period|浪周期|Current Speed|流速|Current Direction|流向|Water Depth|水深|Best Fishing Window|最佳.*窗口|最佳.*时段)/i;
+const SECTION_HEADER_RE = /^(={3,}|-{3,}|Analysis|Target Species|Final Verdict|Style|情况分析|目标鱼种|最终结论|Moon Phase|月相|Moon Illumination|月照|Current Speed|流速|Current Direction|流向|Water Depth|水深|Best Fishing Window|最佳.*窗口|最佳.*时段)/i;
 
 /**
  * 从完整报告文本里提取聊天框摘要行。
@@ -175,12 +181,20 @@ Water Temperature: Current Mode -> currentTideAndWeather.waterTemp; Prediction M
 Wind Direction: Current Mode -> prefer wind.cardinal (if unavailable "No data"); Prediction Mode -> hourly.windDirection.
 Moon: use common.moonPhase. Moon Illumination: use common.moonIllumination. Never infer moon phase from illumination.
 Tides (mode-aware): tideExtremes is a CHRONOLOGICAL list of tide events, each { type: "High" | "Low", time, height }, already sorted by time (it naturally alternates high/low). It already contains exactly the right window for the request, so just present it as-is.
-- CURRENT mode (currentTideAndWeather present): report the NEXT High Tide and the NEXT Low Tide (the first future event of each type after Current Time), then the following upcoming events in time order, e.g. "Next High 18:01 (3.19 ft); Next Low 00:20 (0.74 ft); then 06:19 High 2.68 ft".
-- PREDICTION mode (predictTideAndWeather present): list ALL events in tideExtremes in time order, e.g. "00:20 Low 0.74 ft -> 06:19 High 2.68 ft -> 11:45 Low 0.61 ft -> 18:47 High 3.29 ft". Do NOT collapse it into a single next-high/next-low.
+- CURRENT mode (currentTideAndWeather present): report the NEXT High Tide and the NEXT Low Tide (the first future event of each type after Current Time), then the following upcoming events in time order. Each event on its own line, e.g.:
+  Next High 18:01 3.19 ft
+  Next Low 00:20 0.74 ft
+  06:19 High 2.68 ft
+- PREDICTION mode (predictTideAndWeather present): list ALL events in tideExtremes in time order, each on its own line, e.g.:
+  03:25 Low 0.395 ft
+  08:32 High 2.835 ft
+  15:17 Low 0.82 ft
+  20:54 High 3.859 ft
+  Do NOT use arrows (->), do NOT put multiple events on one line.
 If the list is empty, output "No data".
 Prediction Hour Selection: use the hourly forecast matching the requested fishing time. If a time range is requested, evaluate the entire range.
 Alerts: the alerts array holds active NWS advisories/warnings, each { event, headline, severity, isMarine, effective, expires }. Report each one (prefer marine-related alerts, isMarine=true). If the array is empty, there are no active alerts.
-Wind / Air Temperature / Weather in Prediction Mode: if the JSON contains an "hourlyBlocks" array, use it to present Wind, Air Temperature, and Weather as fixed 3-hour clock blocks (one line per block, e.g. "00:00-02:59 4.3-5.2 kt NE"). Use hourlyBlocks EXACTLY as given — do NOT list individual hours or invent different groupings.
+Wind / Air Temperature / Weather / Wave Height / Wave Period in Prediction Mode: if the JSON contains an "hourlyBlocks" array, use it to present Wind, Air Temperature, Weather, Wave Height, and Wave Period as fixed 3-hour clock blocks (one line per block, e.g. "00:00-02:59 4.3-5.2 kt NE"). Use hourlyBlocks EXACTLY as given — do NOT list individual hours or invent different groupings.
 
 ================== OUTPUT FORMAT ==================
 Current Time:
