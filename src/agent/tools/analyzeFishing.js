@@ -177,24 +177,22 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
 
   // Water Temperature
   const wt = isCurrent ? conditions.currentTideAndWeather?.waterTemp : null;
-  lines.push(`${l.waterTemp}: ${wt != null ? `${wt}°F` : nd}`);
 
-  // Wind / Air Temp / Weather / Wave Height / Wave Period
+  // Wind / Air Temp / Weather / Water Temp / Wave Height / Wave Period
   if (isCurrent) {
     const cw = conditions.currentTideAndWeather || {};
     const wind = cw.wind || {};
+    // 顺序: 气温 → 天气 → 风速 → 水温 → 浪高 → 浪周期
+    lines.push(`${l.airTemp}: ${cw.airTemp != null ? fmtTemp(cw.airTemp) : nd}`);
+    lines.push(`${l.weather}: ${cw.shortForecast || nd}${cw.precipitationProbability || cw.thunderstormProbability ? `, Precip ${cw.precipitationProbability ?? 0}%, Thunder ${cw.thunderstormProbability ?? 0}%` : ''}`);
     const ws = wind.speed != null ? fmtWind(wind.speed, wind.gust, wind.cardinal) : nd;
     lines.push(`${l.wind}: ${ws}`);
-    lines.push(`${l.airTemp}: ${cw.airTemp != null ? fmtTemp(cw.airTemp) : nd}`);
-    lines.push(`${l.weather}: ${cw.shortForecast || nd}`);
+    lines.push(`${l.waterTemp}: ${wt != null ? `${wt}°F` : nd}`);
     lines.push(`${l.waveHeight}: ${cw.waveHeight != null ? `${cw.waveHeight} ft` : nd}`);
     lines.push(`${l.wavePeriod}: ${cw.wavePeriod != null ? `${cw.wavePeriod} s` : nd}`);
-    // Precip
-    const pp = cw.precipitationProbability;
-    const tp = cw.thunderstormProbability;
-    lines.push(`${l.precip}: ${pp != null ? `${pp}%` : nd} / ${tp != null ? `${tp}%` : nd}`);
   } else if (Array.isArray(hourlyBlocks) && hourlyBlocks.length) {
     // Prediction: 3h blocks with pipe separator
+    // 顺序: 气温 → 天气(含降水/雷暴) → 风速 → 水温 → 浪高 → 浪周期
     const renderBlocks = (label, field) => {
       lines.push(`${label}:`);
       for (const b of hourlyBlocks) {
@@ -202,12 +200,12 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
       }
       if (!hourlyBlocks.some((b) => b[field])) lines.push(`  ${nd}`);
     };
+    renderBlocks(l.airTemp, 'airTemp');
     // 天气(含降水/雷暴概率)
     const hourly = conditions.predictTideAndWeather?.hourly || [];
     lines.push(`${l.weather}:`);
     for (const b of hourlyBlocks) {
       if (b.weather) {
-        // 找该时段内的最大降水/雷暴概率
         const blockHour = Number(b.range.slice(0, 2));
         const blockEntries = hourly.filter((h) => {
           const hh = Number((h.time || '').slice(11, 13));
@@ -220,9 +218,8 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
       }
     }
     if (!hourlyBlocks.some((b) => b.weather)) lines.push(`  ${nd}`);
-    // 风速(在天气下面)
     renderBlocks(l.wind, 'wind');
-    renderBlocks(l.airTemp, 'airTemp');
+    lines.push(`${l.waterTemp}: ${nd}`); // prediction 模式无水温
     renderBlocks(l.waveHeight, 'waveHeight');
     renderBlocks(l.wavePeriod, 'wavePeriod');
     // 降水/雷暴已合并进天气块,不再单独输出
