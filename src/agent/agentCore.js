@@ -133,7 +133,14 @@ async function runAnalyzeFast(intent, lang) {
   const date = mode === 'prediction' ? intent.date || null : null;
 
   // analyzeFishing 内部:取海况(current/prediction)→ 调一次 LLM 出报告(第 2 次 LLM)
-  const result = await analyzeFishing.execute({ latitude, longitude, name, note, mode, date }, { lang });
+  // 抛错(数据源/OpenAI 故障)也要落回 function-calling 兜底,不能直接冲出 runAgent
+  let result;
+  try {
+    result = await analyzeFishing.execute({ latitude, longitude, name, note, mode, date }, { lang });
+  } catch (err) {
+    console.error('[agent] analyzeFishing 快捷管道异常,转兜底:', err?.message || err);
+    return null;
+  }
   if (!result || result.error || !result.summary) return null; // 出错 → 兜底
   return analyzeResultToOutput(result, lang);
 }
@@ -242,9 +249,11 @@ async function runToolLoop(userText, { history = [], isAdmin = false, lang = 'zh
         files.push({ filename: spotFileName(result), content: JSON.stringify(result, null, 2) });
       }
 
-      // getCoordinateByName 列全部钓点:透传 spots 数组供传输层渲染按钮
-      if (name === 'getCoordinateByName' && result && Array.isArray(result.coordinates)) {
-        spots = result.coordinates;
+      // getCoordinateByName:列全部钓点(coordinates)或多个同名候选(matches)
+      // → 都透传成 spots,供传输层渲染选择按钮(多候选澄清场景更需要按钮)
+      if (name === 'getCoordinateByName' && result && !result.error) {
+        if (Array.isArray(result.coordinates)) spots = result.coordinates;
+        else if (Array.isArray(result.matches)) spots = result.matches;
       }
 
       // analyzeFishing:摘要短路作正文;附件 = 原始 JSON + 完整分析。不把庞大内容塞回模型上下文。

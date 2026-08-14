@@ -396,20 +396,18 @@ coordinates (
 (`src/agent/tools/analyzeFishing.js`)。agentCore 退化为纯路由:判断类问题交给它,它内部
 自取海况 → 再调一次 LLM(资深海钓向导提示词)产出结构化报告。
 
-### 10.1 两段输出:聊天摘要 + .txt 附件
-LLM 用 `===FULL===` 把输出切两段:
-- **PART 1 = summary(发聊天)**:精简摘要,固定行序 —— Current Time / Sunrise·Sunset /
-  **Tides** / Water Temperature / Wind / Air Temperature / Weather / 降水·雷暴概率 /
-  **Alerts** / 每个目标鱼种的星级 / Best Fishing Window。
-- **PART 2 = full(拼进附件)**:完整报告(全部 OUTPUT FORMAT 字段 + 逐项 ANALYSIS +
-  逐鱼种评级理由 + FINAL VERDICT + Today's Best Targets)。
-- 附件 = 原始 spotConditions JSON + `\n\n===== Fishing Analysis =====\n` + full。
-- 返回 `{summary, full, conditions}`;agentCore 命中即用 summary 短路作正文,不再让模型转述。
+### 10.1 输出组成:聊天正文 + .txt 附件
+> 注:早期用 `===FULL===` 把 LLM 输出切两段(PART 1 摘要 / PART 2 完整报告),已被 §11.3 的
+> "代码渲染数据 + AI 只做分析"取代。当前实现:
+- **聊天正文** = `buildSummary()` 代码渲染的数据段(当前时间 / 日出日落 / 潮汐 / 气温 /
+  天气含降水雷暴 / 风速 / 水温 / 浪高 / 浪周期 / 警报)+ AI 输出的鱼种星级 + Best Fishing Window。
+- **.txt 附件** = 仅原始 spotConditions JSON。
+- 返回 `{summary, conditions}`;agentCore 用 summary 作正文,不再让模型转述。
 
 ### 10.2 目标鱼种打分
 固定鱼种(美东)通过 JSON payload 的 `targetSpecies` 字段传给模型(不写死在提示词里),
 逐种给 5 星评级(★ 实心 + ☆ 空心,固定 5 个字符),各配一句理由。当前列表:
-Striped Bass / Bluefish / Scup / Black Sea Bass / Tautog / Fluke / Weakfish / Squid。
+Striped Bass / Bluefish / Scup / Black Sea Bass / Tautog / Fluke / Weakfish。
 
 ### 10.3 潮汐三档(current / 今天 / 未来某天)
 `tideExtremes` 已从 `{firstHighTide, secondHighTide, ...}` 命名(易被模型误读为"没有第二次高潮")
@@ -433,8 +431,10 @@ Striped Bass / Bluefish / Scup / Black Sea Bass / Tautog / Fluke / Weakfish / Sq
 
 ### 10.5 风/气温/天气按固定 3 小时时段块
 预测模式下,`analyzeFishing` 在**代码里**(`computeHourlyBlocks`)把逐小时归入固定钟点时段块
-(00:00–02:59, 03:00–05:59, …, 21:00–23:59),每块算好风(速度范围+方位)、气温(范围)、天气(主要状况),
-以 `hourlyBlocks` 注入 payload,摘要照着逐行渲染。→ 避免让模型自己"每隔 3 小时挑一个点"导致的不稳定。
+(00:00–02:59, 03:00–05:59, …, 21:00–23:59),每块算好风速(范围+方位,kt+mph)、气温(范围,°F+°C)、
+天气(主要状况)、浪高、浪周期、降水/雷暴概率,由 `buildSummary` 逐行渲染(`时段 | 数值`)。
+**分组键 = 本地日期 + 时段**:"今天"是"从现在起 +24h"的滚动窗口会跨午夜,只按小时分组会把
+今天 14:00 与明天 13:00 混进同一个 `12:00-14:59` 块(已修)。
 
 ### 10.6 Alerts 进摘要
 NWS 活跃预警(`currentTideAndWeather.alerts` / `predictTideAndWeather.alerts`,含 `isMarine`)
@@ -459,8 +459,8 @@ runAgent(userText)
  │       → { type:'analyze'|'other', spot, latitude, longitude, mode, date }
  ├─ type='analyze' → runAnalyzeFast(代码固定管道,不回 LLM 选工具)
  │       ① 查坐标(有 lat/lng 直接用;否则 spot 名查库 精确→模糊)
- │       ② analyzeFishing.execute(内部取海况 + 第2次 LLM 出报告,gpt-5.6-terra)
- │       ③ extractSummary(full) → 代码从完整报告里提取聊天框摘要
+ │       ② analyzeFishing.execute:取海况 → buildSummary 代码渲染数据段
+ │          → 第2次 LLM(gpt-5.6-terra)只出鱼种星级 + Best Window → 两段拼接
  └─ 其它/未命中 → runToolLoop(原 function-calling 循环,gpt-5.6-luna,reasoning_effort='none')
 ```
 
@@ -469,11 +469,14 @@ runAgent(userText)
 - **`OPENAI_MODEL_FAST`**(gpt-5.6-luna):意图提取 + 兜底选工具(结构化任务,reasoning_effort='none')
 - 5.6 系列 + tools 需要 `reasoning_effort:'none'`(API 限制)
 
-### 11.3 单次输出 + 代码提取摘要
-- LLM 只生成**一段完整报告**(不再两段 PART 1/PART 2);`splitLine` 提示词已删除
-- 聊天框摘要由 `extractSummary(fullText)` 在代码里用正则按行提取(固定格式,稳定一致)
-- .txt 附件 = 原始 JSON + 完整报告(不变)
-- hourlyBlocks(3h 块:风/气温/天气/浪高/浪周期)在 FISHING_PROMPT SPECIAL RULES 里指示模型使用
+### 11.3 代码渲染数据 + AI 只做分析(职责彻底分离)
+- **代码**(`buildSummary`)渲染所有确定性字段:当前时间、日出日落、潮汐、气温、天气(含降水/雷暴)、
+  风速、水温、浪高、浪周期、警报。100% 稳定,不依赖模型输出格式,无需正则提取。
+- **AI**(`FISHING_PROMPT`)只输出主观判断:逐鱼种星级 + Best Fishing Window。
+- 聊天正文 = `buildSummary` 结果 + `\n\n` + AI 分析。
+- .txt 附件 = **仅**原始 spotConditions JSON(分析文字已在聊天里,不再重复拼进附件)。
+- `hourlyBlocks`(3h 块)只给 `buildSummary` 内部用,**不再注入 AI payload**(提示词也不再引用它)。
+- 历史:曾用 `===FULL===` 两段输出 + `extractSummary()` 正则提取,现已全部移除。
 
 ### 11.4 ANALYSIS 精简
 - 某项数据缺失(No data)→ 直接输出"No data",不强行分析

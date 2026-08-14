@@ -22,9 +22,6 @@ export function toolSchemasFor(isAdmin) {
   return tools.filter((t) => isAdmin || !t.adminOnly).map(toSchema);
 }
 
-/** 全量 schema(兼容旧用法) */
-export const toolSchemas = tools.map(toSchema);
-
 /** name → 工具 的映射 */
 const toolMap = new Map(tools.map((t) => [t.name, t]));
 

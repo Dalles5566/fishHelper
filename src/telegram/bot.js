@@ -42,6 +42,18 @@ export function startTelegram({ onMessage } = {}) {
   const sendMessage = (chatId, text, extra = {}) =>
     call('sendMessage', { chat_id: chatId, text: String(text || '').slice(0, 4096), ...extra });
 
+  /**
+   * 发长文本:超 4096 自动按行切分成多条(避免尾部被静默截断)。
+   * extra(如 reply_markup 按钮)只挂在最后一条上。
+   */
+  async function sendLongMessage(chatId, text, extra = {}) {
+    const chunks = splitText(String(text || '') || '(无内容)', 4096);
+    for (let i = 0; i < chunks.length; i++) {
+      const isLast = i === chunks.length - 1;
+      await sendMessage(chatId, chunks[i], isLast ? extra : {});
+    }
+  }
+
   const sendDocument = (chatId, filename, content) => {
     const form = new FormData();
     form.append('chat_id', String(chatId));
@@ -64,6 +76,7 @@ export function startTelegram({ onMessage } = {}) {
       call('sendChatAction', { chat_id: cbChatId, action: 'typing' }).catch(() => {});
 
       const spotId = Number(data.slice(5));
+      if (!Number.isFinite(spotId) || spotId <= 0) return; // 防 NaN 打到数据库
       try {
         const spot = await findCoordinateById(spotId);
         if (!spot) {
@@ -79,7 +92,7 @@ export function startTelegram({ onMessage } = {}) {
         for (const f of r.files || []) {
           await sendDocument(cbChatId, f.filename, f.content).catch(() => {});
         }
-        await sendMessage(cbChatId, (r.text && String(r.text).trim()) || '(无内容)');
+        await sendLongMessage(cbChatId, (r.text && String(r.text).trim()) || '(无内容)');
       } catch (err) {
         console.error('[tg] 按钮回调处理异常:', err?.message || err);
         await sendMessage(cbChatId, '抱歉,处理时出错了。').catch(() => {});
@@ -138,7 +151,7 @@ export function startTelegram({ onMessage } = {}) {
           ]),
         });
       }
-      await sendMessage(chatId, (result.text && String(result.text).trim()) || '(无内容)', extra);
+      await sendLongMessage(chatId, (result.text && String(result.text).trim()) || '(无内容)', extra);
     } catch (err) {
       console.error('[tg] 文本发送失败:', err?.message || err);
     }
@@ -151,8 +164,14 @@ export function startTelegram({ onMessage } = {}) {
         // 长轮询,最多挂起 30s;offset 用上一条 update_id+1 确认已消费
         const updates = await call('getUpdates', { offset, timeout: 30 });
         for (const u of updates) {
+          // handle 内部已有 try/catch;这里再兜一层,保证单条出错不影响后续 update,
+          // 且 offset 一定推进(不会卡在同一条上无限重试)
+          try {
+            await handle(u);
+          } catch (err) {
+            console.error('[tg] 处理 update 失败(已跳过):', err?.message || err);
+          }
           offset = u.update_id + 1;
-          await handle(u);
         }
       } catch (err) {
         console.error('[tg] 轮询出错,3s 后重试:', err?.message || err);
@@ -164,6 +183,24 @@ export function startTelegram({ onMessage } = {}) {
   loop();
 
   return { stop: () => { running = false; }, sendMessage, sendDocument };
+}
+
+/** 按最大长度切分文本(尽量不切断行) */
+function splitText(text, maxLen) {
+  if (text.length <= maxLen) return [text];
+  const chunks = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLen) {
+      chunks.push(remaining);
+      break;
+    }
+    let cut = remaining.lastIndexOf('\n', maxLen);
+    if (cut <= 0) cut = maxLen;
+    chunks.push(remaining.slice(0, cut));
+    remaining = remaining.slice(cut).trimStart();
+  }
+  return chunks;
 }
 
 export default startTelegram;

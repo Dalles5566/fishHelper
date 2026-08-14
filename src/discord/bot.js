@@ -96,14 +96,17 @@ export function startDiscord({ onMessage } = {}) {
     // 如果有 spots 列表,渲染按钮(每行最多 5 个,Discord 上限)
     const components = [];
     if (Array.isArray(result.spots) && result.spots.length) {
-      const spots = result.spots.slice(0, 25); // Discord 最多 5 行 × 5 按钮 = 25
+      // Discord 要求 label 1-80 字符且 customId 必须有效,过滤掉没名字/没 id 的
+      const spots = result.spots
+        .filter((s) => s && s.id != null && String(s.name || '').trim())
+        .slice(0, 25); // Discord 最多 5 行 × 5 按钮 = 25
       for (let i = 0; i < spots.length; i += 5) {
         const row = new ActionRowBuilder();
         for (const s of spots.slice(i, i + 5)) {
           row.addComponents(
             new ButtonBuilder()
               .setCustomId(`spot_${s.id}`)
-              .setLabel(String(s.name).slice(0, 80))
+              .setLabel(String(s.name).trim().slice(0, 80))
               .setStyle(ButtonStyle.Primary)
           );
         }
@@ -124,10 +127,6 @@ export function startDiscord({ onMessage } = {}) {
         } else {
           await msg.channel.send(opts);
         }
-      }
-      // 如果文字不超 2000 但有附件且还没发(不会走这,但兜底)
-      if (chunks.length === 0 && attachments.length) {
-        await msg.reply({ content: '(无内容)', files: attachments });
       }
     } catch (err) {
       console.error('[discord] 回复失败:', err?.message || err);

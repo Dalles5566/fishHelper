@@ -252,6 +252,7 @@
 - [x] **双模型**:`OPENAI_MODEL`(gpt-5.6-terra,analyzeFishing 报告)+ `OPENAI_MODEL_FAST`(gpt-5.6-luna,意图提取+兜底)
 - [x] **reasoning_effort:'none'**:5.6 系列 + tools 的 API 兼容性修复
 - [x] **单次输出**:LLM 只生成一段完整报告(删 splitLine);聊天摘要由 `extractSummary()` 代码提取
+      (→ 后续任务 17 进一步改为 `buildSummary()` 直接从数据渲染,`extractSummary` 已移除)
 - [x] **ANALYSIS 精简**:No data 不强行分析;FINAL VERDICT 只留 Best Fishing Window
 - [x] **潮汐格式修正**:current=逐行 Next High/Low;predict=逐行逐事件(不用箭头)
 - [x] **浪高/浪周期 3h 块**:加入 computeHourlyBlocks + FISHING_PROMPT 指令
@@ -282,6 +283,47 @@
 - [x] **Telegram InlineKeyboard**:同上,callback_query 触发分析
 - [x] **企业微信降级**:纯文本列表(无按钮)
 - [x] `findCoordinateById` 加入 DB 层(按钮回调用)
+
+**状态:已上线**
+
+---
+
+## ✅ 任务 17:代码渲染摘要 + 全面代码审查修复(已上线)
+详见 design.md §10.1 / §11.3。
+
+**架构调整:代码渲染数据,AI 只做分析**
+- [x] `buildSummary(conditions, hourlyBlocks, lang)`:代码渲染所有确定性字段(时间/潮汐/气温/
+      天气/风速/水温/浪高/浪周期/警报),100% 稳定格式,不依赖模型输出
+- [x] `FISHING_PROMPT` 精简为只出鱼种星级 + Best Fishing Window(采用 ChatGPT 撰写的
+      详细物种评判提示词:CORE PRINCIPLE / DATA DISCIPLINE / TIME-OF-DAY / TIDE / WIND-WAVE /
+      SPECIES RATINGS / BEST WINDOW / REASONING PRIORITY)
+- [x] 删除 `extractSummary()` 正则提取 + `CHAT_FIELDS` + `SECTION_HEADER_RE`
+- [x] .txt 附件只留原始 JSON(不再拼分析文字)
+- [x] 显示细节:双单位(kt+mph、°F+°C)、`时段 | 数值` 管道分隔、字段顺序
+      (潮汐→气温→天气→风速→水温→浪高→浪周期→警报)、降水雷暴合进天气行
+- [x] 移除 Squid(7 个鱼种);鱼名永远用英文原名不翻译
+
+**代码审查修复(bug)**
+- [x] `computeHourlyBlocks` 分组键改为**本地日期 + 时段**:修复"今天"滚动窗口跨午夜时
+      今天/明天数据混进同一 3h 块(风速气温范围错乱、块顺序错乱)
+- [x] 降水/雷暴概率改在 `computeHourlyBlocks` 内按同批 entries 计算,不再二次按小时扫描
+      (原实现会把明天的降水概率串到今天的块里)
+- [x] `runAnalyzeFast` 用 try/catch 包住 `analyzeFishing.execute`:抛错(数据源/OpenAI 故障)
+      现在能正确落回 function-calling 兜底,而非直接冲出 runAgent
+- [x] 多个同名候选时也透传 `result.matches` 成 spots → 最需要按钮的澄清场景现在有按钮了
+- [x] Telegram 长回复改为 `sendLongMessage` 按行分段(原 `.slice(0,4096)` 会静默截断尾部)
+- [x] prediction 但逐小时为空(NWS 失败/交集为空)时,补 else 分支明确打印"无数据"
+- [x] 移除 `unitSystem: 'metric'`(格式化函数只支持英制,传 metric 会数字/单位全错)
+- [x] Telegram 按钮回调加 NaN 守卫;`offset` 改为 handle 之后推进并单条 try/catch
+- [x] Discord 按钮过滤无效钓点(空名字会让 Discord API 抛错)
+
+**死代码清理**
+- [x] `result.full`(与 summary 完全相同,无人读取)
+- [x] `L.zh.precip` / `L.en.precip`(降水已合进天气行)
+- [x] `computeHourlyBlocks` 的 `_unitSystem` 参数
+- [x] `registerTools.js` 的 `export const toolSchemas`(无人 import,且泄漏 adminOnly schema)
+- [x] Discord `chunks.length === 0` 不可达分支
+- [x] `payload.hourlyBlocks`(提示词已不引用,与原始 hourly 重复,纯浪费 token)
 
 **状态:已上线**
 

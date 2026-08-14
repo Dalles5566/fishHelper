@@ -44,9 +44,12 @@ function fmtDateTime(iso) {
 
 /**
  * 把预测逐小时按固定 3 小时钟点时段分块。
- * @returns [{ range, wind, airTemp, weather, waveHeight, wavePeriod }]
+ * 分组键 = 本地日期 + 时段(不能只用小时:"今天"是"从现在起 24h"的滚动窗口,会跨午夜,
+ * 只按小时分组会把今天 14:00 和明天 13:00 混进同一个 12:00-14:59 块)。
+ * 降水/雷暴概率也在这里一并算好(同一批 entries,不再二次按小时扫描)。
+ * @returns [{ range, wind, airTemp, weather, waveHeight, wavePeriod, precipProb, thunderProb }]
  */
-function computeHourlyBlocks(hourly, _unitSystem) {
+function computeHourlyBlocks(hourly) {
   const order = [];
   const groups = new Map();
   for (const h of hourly || []) {
@@ -56,14 +59,15 @@ function computeHourlyBlocks(hourly, _unitSystem) {
     if (Number.isNaN(hh)) continue;
     const start = Math.floor(hh / 3) * 3;
     const label = `${String(start).padStart(2, '0')}:00-${String(start + 2).padStart(2, '0')}:59`;
-    if (!groups.has(label)) {
-      groups.set(label, []);
-      order.push(label);
+    const key = `${t.slice(0, 10)} ${label}`; // 日期 + 时段,避免跨天混合
+    if (!groups.has(key)) {
+      groups.set(key, { label, entries: [] });
+      order.push(key);
     }
-    groups.get(label).push(h);
+    groups.get(key).entries.push(h);
   }
-  return order.map((label) => {
-    const es = groups.get(label);
+  return order.map((key) => {
+    const { label, entries: es } = groups.get(key);
     const speeds = es.map((e) => e.windSpeed).filter((v) => v != null);
     const temps = es.map((e) => e.temperature).filter((v) => v != null);
     const dirs = [...new Set(es.map((e) => e.windDirection).filter(Boolean))];
@@ -80,7 +84,10 @@ function computeHourlyBlocks(hourly, _unitSystem) {
       : null;
     const waveHeight = waves.length ? `${fmtRange(Math.min(...waves), Math.max(...waves), 1)} ft` : null;
     const wavePeriod = periods.length ? `${fmtRange(Math.min(...periods), Math.max(...periods))} s` : null;
-    return { range: label, wind, airTemp, weather, waveHeight, wavePeriod };
+    // 该时段内的最大降水/雷暴概率(同一批 entries,天然按日期隔离)
+    const precipProb = Math.max(0, ...es.map((e) => e.precipitationProbability ?? 0));
+    const thunderProb = Math.max(0, ...es.map((e) => e.thunderstormProbability ?? 0));
+    return { range: label, wind, airTemp, weather, waveHeight, wavePeriod, precipProb, thunderProb };
   });
 }
 
@@ -89,13 +96,13 @@ const L = {
   zh: {
     currentTime: '当前时间', sunrise: '日出 / 日落', tides: '潮汐',
     waterTemp: '水温', wind: '风速', airTemp: '气温', weather: '天气',
-    precip: '降水/雷暴', alerts: '警报', waveHeight: '浪高', wavePeriod: '浪周期',
+    alerts: '警报', waveHeight: '浪高', wavePeriod: '浪周期',
     noData: '无数据', noAlerts: '无活动警报', nextHigh: '下一次高潮', nextLow: '下一次低潮',
   },
   en: {
     currentTime: 'Current Time', sunrise: 'Sunrise / Sunset', tides: 'Tides',
     waterTemp: 'Water Temperature', wind: 'Wind Speed', airTemp: 'Air Temperature', weather: 'Weather',
-    precip: 'Precip / Thunderstorm', alerts: 'Alerts', waveHeight: 'Wave Height', wavePeriod: 'Wave Period',
+    alerts: 'Alerts', waveHeight: 'Wave Height', wavePeriod: 'Wave Period',
     noData: 'No data', noAlerts: 'No active alerts', nextHigh: 'Next High', nextLow: 'Next Low',
   },
 };
@@ -180,13 +187,11 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
     lines.push(`  ${nd}`);
   }
 
-  // Water Temperature
-  const wt = isCurrent ? conditions.currentTideAndWeather?.waterTemp : null;
-
   // Wind / Air Temp / Weather / Water Temp / Wave Height / Wave Period
   if (isCurrent) {
     const cw = conditions.currentTideAndWeather || {};
     const wind = cw.wind || {};
+    const wt = cw.waterTemp;
     // 顺序: 气温 → 天气 → 风速 → 水温 → 浪高 → 浪周期
     lines.push(`${l.airTemp}: ${cw.airTemp != null ? fmtTemp(cw.airTemp) : nd}`);
     lines.push(`${l.weather}: ${cw.shortForecast || nd}${cw.precipitationProbability || cw.thunderstormProbability ? `, Precip ${cw.precipitationProbability ?? 0}%, Thunder ${cw.thunderstormProbability ?? 0}%` : ''}`);
@@ -206,28 +211,26 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
       if (!hourlyBlocks.some((b) => b[field])) lines.push(`  ${nd}`);
     };
     renderBlocks(l.airTemp, 'airTemp');
-    // 天气(含降水/雷暴概率)
-    const hourly = conditions.predictTideAndWeather?.hourly || [];
+    // 天气(含降水/雷暴概率,已在 computeHourlyBlocks 里按日期+时段算好)
     lines.push(`${l.weather}:`);
     for (const b of hourlyBlocks) {
       if (b.weather) {
-        const blockHour = Number(b.range.slice(0, 2));
-        const blockEntries = hourly.filter((h) => {
-          const hh = Number((h.time || '').slice(11, 13));
-          return hh >= blockHour && hh <= blockHour + 2;
-        });
-        const pp = Math.max(0, ...blockEntries.map((h) => h.precipitationProbability ?? 0));
-        const tp = Math.max(0, ...blockEntries.map((h) => h.thunderstormProbability ?? 0));
-        const precip = pp || tp ? `, Precip ${pp}%, Thunder ${tp}%` : '';
+        const precip = b.precipProb || b.thunderProb
+          ? `, Precip ${b.precipProb}%, Thunder ${b.thunderProb}%`
+          : '';
         lines.push(`  ${b.range} | ${b.weather}${precip}`);
       }
     }
     if (!hourlyBlocks.some((b) => b.weather)) lines.push(`  ${nd}`);
     renderBlocks(l.wind, 'wind');
-    lines.push(`${l.waterTemp}: ${nd}`); // prediction 模式无水温
+    lines.push(`${l.waterTemp}: ${nd}`); // prediction 模式不取实测水温
     renderBlocks(l.waveHeight, 'waveHeight');
     renderBlocks(l.wavePeriod, 'wavePeriod');
-    // 降水/雷暴已合并进天气块,不再单独输出
+  } else {
+    // prediction 但逐小时为空(如 NWS 失败 / 交集为空)→ 明确打印"无数据",避免看起来像报告被截断
+    for (const label of [l.airTemp, l.weather, l.wind, l.waterTemp, l.waveHeight, l.wavePeriod]) {
+      lines.push(`${label}: ${nd}`);
+    }
   }
 
   // Alerts
@@ -415,21 +418,20 @@ export default {
         description: 'now (current) or future forecast (prediction); default current',
       },
       date: { type: 'string', description: 'Target date YYYY-MM-DD (when mode=prediction; omit = from now)' },
-      unitSystem: { type: 'string', enum: ['english', 'metric'], description: 'default english' },
     },
     required: ['latitude', 'longitude'],
     additionalProperties: false,
   },
-  async execute({ latitude, longitude, name, note, mode, date, unitSystem } = {}, context = {}) {
+  async execute({ latitude, longitude, name, note, mode, date } = {}, context = {}) {
     const predict = mode === 'prediction' || !!date;
+    // 单位固定英制(摘要渲染器只输出 ft/kt/°F,并附 mph/°C 换算)
+    const unitSystem = 'english';
     const conditions = predict
       ? await getPredictConditions(latitude, longitude, { name, note, date, unitSystem })
       : await getCurrentConditions(latitude, longitude, { name, note, unitSystem });
 
     // 代码渲染固定字段摘要(确定性,不过 AI)
-    const hourlyBlocks = predict
-      ? computeHourlyBlocks(conditions.predictTideAndWeather?.hourly, unitSystem || 'english')
-      : null;
+    const hourlyBlocks = predict ? computeHourlyBlocks(conditions.predictTideAndWeather?.hourly) : null;
     const lang = context.lang || 'zh';
     const dataSummary = buildSummary(conditions, hourlyBlocks, lang);
 
@@ -438,8 +440,8 @@ export default {
       ? '[Language] Reply ENTIRELY in English.'
       : '[Language] Reply ENTIRELY in Chinese (中文).';
 
+    // payload 只给原始 conditions + 鱼种;hourlyBlocks 是给摘要渲染用的,提示词不引用它,不必重复发
     const payload = { ...conditions, targetSpecies: TARGET_SPECIES };
-    if (hourlyBlocks) payload.hourlyBlocks = hourlyBlocks;
 
     const completion = await getClient().chat.completions.create({
       model: config.openai.model,
@@ -453,9 +455,7 @@ export default {
 
     // 拼接:代码渲染的数据摘要 + AI 的分析 = 聊天正文
     const summary = `${dataSummary}\n\n${analysis}`;
-    // full = 完整版(放附件):跟 summary 一样(AI 不再生成冗长的独立完整报告)
-    const full = summary;
 
-    return { summary, full, conditions };
+    return { summary, conditions };
   },
 };
