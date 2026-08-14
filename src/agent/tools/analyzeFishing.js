@@ -153,12 +153,18 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
   lines.push(`${l.tides}:`);
   if (Array.isArray(tides) && tides.length) {
     if (isCurrent) {
-      // current: Next High / Next Low + rest
+      // current: Next tide events (按时间顺序,哪个先来就先显示)
       const now = ct ? new Date(ct).getTime() : Date.now();
-      const nextHigh = tides.find((t) => t.type === 'High' && new Date(t.time).getTime() > now);
-      const nextLow = tides.find((t) => t.type === 'Low' && new Date(t.time).getTime() > now);
-      if (nextHigh) lines.push(`  ${l.nextHigh} ${fmtTime(nextHigh.time)} ${nextHigh.height} ft`);
-      if (nextLow) lines.push(`  ${l.nextLow} ${fmtTime(nextLow.time)} ${nextLow.height} ft`);
+      const future = tides.filter((t) => new Date(t.time).getTime() > now);
+      const nextHigh = future.find((t) => t.type === 'High');
+      const nextLow = future.find((t) => t.type === 'Low');
+      // 按时间排序输出 next high/low
+      const nexts = [nextHigh, nextLow].filter(Boolean).sort((a, b) => new Date(a.time) - new Date(b.time));
+      for (const t of nexts) {
+        const label = t.type === 'High' ? l.nextHigh : l.nextLow;
+        lines.push(`  ${label} ${fmtTime(t.time)} ${t.height} ft`);
+      }
+      // 其余事件
       for (const t of tides) {
         if (t === nextHigh || t === nextLow) continue;
         const typeLabel = t.type === 'High' ? (lang === 'zh' ? '高潮' : 'High') : (lang === 'zh' ? '低潮' : 'Low');
