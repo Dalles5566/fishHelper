@@ -272,7 +272,17 @@ Recommend the best upcoming fishing window with a brief explanation (tide + weat
 OUTPUT FORMAT (exactly this, nothing else):
 <one line per species: "SpeciesName: ★★★★☆ - reason">
 <blank line>
-Best Fishing Window: <time range> - <brief reason>`;
+Best Fishing Window: <time range> - <brief reason>
+
+ADDITIONAL GUIDELINES:
+- Moving water (rising or falling tide) matters more than exact high/low tide time. Do NOT automatically favor slack or high tide.
+- Calm is not always best — moderate chop can improve feeding by disturbing bait and reducing visibility.
+- Safety overrides quality: thunderstorms, dangerous surf, or strong wind must substantially reduce recommendations even if the tide is favorable.
+- Best Fishing Window should be a practical 2-4 hour range, not a single timestamp. Compare candidate windows across the entire forecast period.
+- Moon phase is secondary; do not treat it as a dominant factor unless there is a strong specific reason.
+- If multiple species genuinely deserve the same rating, give the same rating — do not force variety for its own sake.
+- Do not assume tidal current speed from tide height alone. When current data is unavailable, do not claim current is strong/weak/slack.
+- Do not substitute air temperature for water temperature.`;
 
 // ============================================================================
 // Tool 定义 + execute
