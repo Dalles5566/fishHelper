@@ -19,5 +19,7 @@ INSERT INTO coordinates (name, latitude, longitude, note) VALUES
   ('Massachusetts Maritime Academy', 41.74006918866203, -70.62137421028096, '军校'),
   ('East Canal Lot Mainland Side', 41.77990024888963, -70.4891138957591, 'Canal 灯塔那里'),
   ('Fishermen''s View Seafood Market & Restaurant', 41.772620636132665, -70.50446956734339, 'Canal对面'),
-  ('Church Woods Hole', 41.51560726125236, -70.65535288844315, '第一次钓鱼的地方')
+  ('Church Woods Hole', 41.51560726125236, -70.65535288844315, '第一次钓鱼的地方'),
+  ('Nantasket Beach Resort', 42.2785546, -70.8646471, '抓蟹'),
+  ('Rocky Point State Park', 41.6885902, -71.3643383, '阿妈发我的位置')
 ON CONFLICT (lower(name)) DO NOTHING;
