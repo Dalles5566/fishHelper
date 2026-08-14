@@ -47,7 +47,7 @@ function fmtDateTime(iso) {
  * 把预测逐小时按固定 3 小时钟点时段分块。
  * @returns [{ range, wind, airTemp, weather, waveHeight, wavePeriod }]
  */
-function computeHourlyBlocks(hourly, unitSystem) {
+function computeHourlyBlocks(hourly, _unitSystem) {
   const order = [];
   const groups = new Map();
   for (const h of hourly || []) {
@@ -194,7 +194,7 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
     const tp = cw.thunderstormProbability;
     lines.push(`${l.precip}: ${pp != null ? `${pp}%` : nd} / ${tp != null ? `${tp}%` : nd}`);
   } else if (Array.isArray(hourlyBlocks) && hourlyBlocks.length) {
-    // Prediction: 3h blocks with separator lines
+    // Prediction: 3h blocks with pipe separator
     const renderBlocks = (label, field) => {
       lines.push(`${label}:`);
       for (const b of hourlyBlocks) {
@@ -202,16 +202,30 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
       }
       if (!hourlyBlocks.some((b) => b[field])) lines.push(`  ${nd}`);
     };
+    // 天气(含降水/雷暴概率)
+    const hourly = conditions.predictTideAndWeather?.hourly || [];
+    lines.push(`${l.weather}:`);
+    for (const b of hourlyBlocks) {
+      if (b.weather) {
+        // 找该时段内的最大降水/雷暴概率
+        const blockHour = Number(b.range.slice(0, 2));
+        const blockEntries = hourly.filter((h) => {
+          const hh = Number((h.time || '').slice(11, 13));
+          return hh >= blockHour && hh <= blockHour + 2;
+        });
+        const pp = Math.max(0, ...blockEntries.map((h) => h.precipitationProbability ?? 0));
+        const tp = Math.max(0, ...blockEntries.map((h) => h.thunderstormProbability ?? 0));
+        const precip = pp || tp ? `, Precip ${pp}%, Thunder ${tp}%` : '';
+        lines.push(`  ${b.range} | ${b.weather}${precip}`);
+      }
+    }
+    if (!hourlyBlocks.some((b) => b.weather)) lines.push(`  ${nd}`);
+    // 风速(在天气下面)
     renderBlocks(l.wind, 'wind');
     renderBlocks(l.airTemp, 'airTemp');
-    renderBlocks(l.weather, 'weather');
     renderBlocks(l.waveHeight, 'waveHeight');
     renderBlocks(l.wavePeriod, 'wavePeriod');
-    // Precip: max across all hourly
-    const hourly = conditions.predictTideAndWeather?.hourly || [];
-    const maxP = Math.max(0, ...hourly.map((h) => h.precipitationProbability ?? 0));
-    const maxT = Math.max(0, ...hourly.map((h) => h.thunderstormProbability ?? 0));
-    lines.push(`${l.precip}: ${maxP}% / ${maxT}%`);
+    // 降水/雷暴已合并进天气块,不再单独输出
   }
 
   // Alerts
