@@ -254,7 +254,7 @@ async function runToolLoop(userText, { history = [], isAdmin = false, lang = 'zh
         const c = result.conditions || {};
         files.push({
           filename: spotFileName(c),
-          content: JSON.stringify(c, null, 2) + '\n\n===== Fishing Analysis =====\n' + (result.full || ''),
+          content: JSON.stringify(c, null, 2),
         });
         toolContent = { summary: result.summary };
       }
@@ -337,13 +337,13 @@ function buildOutput(finalText, files, lang = 'zh', spots = null) {
   return out;
 }
 
-/** analyzeFishing 结果 → { text, files }:summary 作正文,原始 JSON + 完整分析拼进 .txt 附件 */
+/** analyzeFishing 结果 → { text, files }:summary 作正文,原始 JSON 做 .txt 附件 */
 function analyzeResultToOutput(result, lang) {
   const c = result.conditions || {};
   const files = [
     {
       filename: spotFileName(c),
-      content: JSON.stringify(c, null, 2) + '\n\n===== Fishing Analysis =====\n' + (result.full || ''),
+      content: JSON.stringify(c, null, 2),
     },
   ];
   return buildOutput(result.summary, files, lang);
