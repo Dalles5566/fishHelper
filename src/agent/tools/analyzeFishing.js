@@ -17,7 +17,6 @@ const TARGET_SPECIES = [
   'Tautog',
   'Fluke',
   'Weakfish',
-  'Squid',
 ];
 
 // ============================================================================
@@ -261,6 +260,7 @@ RULES:
 
 TARGET SPECIES:
 Evaluate EVERY species in the targetSpecies list. Do NOT add, remove, or reorder.
+Always use the English species names exactly as given in targetSpecies — never translate them to Chinese or any other language.
 Assign each a star rating (use EXACTLY 5 characters: filled ★ plus empty ☆):
 ★★★★★ Excellent / ★★★★☆ Very Good / ★★★☆☆ Fair / ★★☆☆☆ Poor / ★☆☆☆☆ Very Poor
 Consider: tide, tidal current, water temperature, wind, weather, waves, time of day, sun/moon, water depth.
