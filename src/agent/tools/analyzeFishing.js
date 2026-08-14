@@ -48,8 +48,6 @@ function fmtDateTime(iso) {
  * @returns [{ range, wind, airTemp, weather, waveHeight, wavePeriod }]
  */
 function computeHourlyBlocks(hourly, unitSystem) {
-  const windUnit = unitSystem === 'metric' ? 'm/s' : 'kt';
-  const tempUnit = unitSystem === 'metric' ? '°C' : '°F';
   const order = [];
   const groups = new Map();
   for (const h of hourly || []) {
@@ -76,8 +74,11 @@ function computeHourlyBlocks(hourly, unitSystem) {
     for (const e of es) if (e.shortForecast) freq.set(e.shortForecast, (freq.get(e.shortForecast) || 0) + 1);
     const weather = [...freq.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
     const spd = speeds.length ? fmtRange(Math.min(...speeds), Math.max(...speeds), 1) : null;
-    const wind = spd ? `${spd} ${windUnit}${dirs.length ? ' ' + dirs.join('/') : ''}` : dirs.join('/') || null;
-    const airTemp = temps.length ? `${fmtRange(Math.min(...temps), Math.max(...temps))}${tempUnit}` : null;
+    const spdMph = speeds.length ? fmtRange(ktToMph(Math.min(...speeds)), ktToMph(Math.max(...speeds))) : null;
+    const wind = spd ? `${spd} kt (${spdMph} mph)${dirs.length ? ' ' + dirs.join('/') : ''}` : dirs.join('/') || null;
+    const airTemp = temps.length
+      ? `${fmtRange(Math.min(...temps), Math.max(...temps))}°F (${fmtRange(fToC(Math.min(...temps)), fToC(Math.max(...temps)))}°C)`
+      : null;
     const waveHeight = waves.length ? `${fmtRange(Math.min(...waves), Math.max(...waves), 1)} ft` : null;
     const wavePeriod = periods.length ? `${fmtRange(Math.min(...periods), Math.max(...periods))} s` : null;
     return { range: label, wind, airTemp, weather, waveHeight, wavePeriod };
@@ -88,17 +89,44 @@ function computeHourlyBlocks(hourly, unitSystem) {
 const L = {
   zh: {
     currentTime: '当前时间', sunrise: '日出 / 日落', tides: '潮汐',
-    waterTemp: '水温', wind: '风', airTemp: '气温', weather: '天气',
+    waterTemp: '水温', wind: '风速', airTemp: '气温', weather: '天气',
     precip: '降水/雷暴', alerts: '警报', waveHeight: '浪高', wavePeriod: '浪周期',
     noData: '无数据', noAlerts: '无活动警报', nextHigh: '下一次高潮', nextLow: '下一次低潮',
   },
   en: {
     currentTime: 'Current Time', sunrise: 'Sunrise / Sunset', tides: 'Tides',
-    waterTemp: 'Water Temperature', wind: 'Wind', airTemp: 'Air Temperature', weather: 'Weather',
+    waterTemp: 'Water Temperature', wind: 'Wind Speed', airTemp: 'Air Temperature', weather: 'Weather',
     precip: 'Precip / Thunderstorm', alerts: 'Alerts', waveHeight: 'Wave Height', wavePeriod: 'Wave Period',
     noData: 'No data', noAlerts: 'No active alerts', nextHigh: 'Next High', nextLow: 'Next Low',
   },
 };
+
+/** kt → mph */
+function ktToMph(kt) {
+  if (kt == null) return null;
+  return Math.round(kt * 1.15078);
+}
+
+/** °F → °C */
+function fToC(f) {
+  if (f == null) return null;
+  return Math.round((f - 32) * 5 / 9);
+}
+
+/** 格式化风速: "5.2 kt (6 mph) NW" */
+function fmtWind(speed, gust, cardinal) {
+  if (speed == null) return null;
+  let s = `${speed} kt (${ktToMph(speed)} mph)`;
+  if (cardinal) s = `${cardinal} ${s}`;
+  if (gust != null) s += `, gust ${gust} kt (${ktToMph(gust)} mph)`;
+  return s;
+}
+
+/** 格式化气温: "78°F (25°C)" */
+function fmtTemp(f) {
+  if (f == null) return null;
+  return `${f}°F (${fToC(f)}°C)`;
+}
 
 /**
  * 纯代码从 conditions 渲染聊天摘要的"硬性数据"部分。
@@ -155,9 +183,9 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
   if (isCurrent) {
     const cw = conditions.currentTideAndWeather || {};
     const wind = cw.wind || {};
-    const ws = wind.speed != null ? `${wind.cardinal || ''} ${wind.speed} kt${wind.gust ? `, gust ${wind.gust} kt` : ''}`.trim() : nd;
+    const ws = wind.speed != null ? fmtWind(wind.speed, wind.gust, wind.cardinal) : nd;
     lines.push(`${l.wind}: ${ws}`);
-    lines.push(`${l.airTemp}: ${cw.airTemp != null ? `${cw.airTemp}°F` : nd}`);
+    lines.push(`${l.airTemp}: ${cw.airTemp != null ? fmtTemp(cw.airTemp) : nd}`);
     lines.push(`${l.weather}: ${cw.shortForecast || nd}`);
     lines.push(`${l.waveHeight}: ${cw.waveHeight != null ? `${cw.waveHeight} ft` : nd}`);
     lines.push(`${l.wavePeriod}: ${cw.wavePeriod != null ? `${cw.wavePeriod} s` : nd}`);
@@ -166,13 +194,18 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
     const tp = cw.thunderstormProbability;
     lines.push(`${l.precip}: ${pp != null ? `${pp}%` : nd} / ${tp != null ? `${tp}%` : nd}`);
   } else if (Array.isArray(hourlyBlocks) && hourlyBlocks.length) {
-    // Prediction: 3h blocks
+    // Prediction: 3h blocks with separator lines
     const renderBlocks = (label, field) => {
       lines.push(`${label}:`);
+      let first = true;
       for (const b of hourlyBlocks) {
-        if (b[field]) lines.push(`  ${b.range} ${b[field]}`);
+        if (b[field]) {
+          if (!first) lines.push('  ---------');
+          lines.push(`  ${b.range} ${b[field]}`);
+          first = false;
+        }
       }
-      if (!hourlyBlocks.some((b) => b[field])) lines.push(`  ${nd}`);
+      if (first) lines.push(`  ${nd}`); // all null
     };
     renderBlocks(l.wind, 'wind');
     renderBlocks(l.airTemp, 'airTemp');
