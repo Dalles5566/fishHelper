@@ -197,15 +197,10 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
     // Prediction: 3h blocks with separator lines
     const renderBlocks = (label, field) => {
       lines.push(`${label}:`);
-      let first = true;
       for (const b of hourlyBlocks) {
-        if (b[field]) {
-          if (!first) lines.push('  ---------');
-          lines.push(`  ${b.range} ${b[field]}`);
-          first = false;
-        }
+        if (b[field]) lines.push(`  ${b.range} | ${b[field]}`);
       }
-      if (first) lines.push(`  ${nd}`); // all null
+      if (!hourlyBlocks.some((b) => b[field])) lines.push(`  ${nd}`);
     };
     renderBlocks(l.wind, 'wind');
     renderBlocks(l.airTemp, 'airTemp');
