@@ -3,7 +3,7 @@ import { query } from './pool.js';
 
 export async function listCoordinates() {
   const { rows } = await query(
-    'SELECT id, name, latitude, longitude, note, state, distance, created_at FROM coordinates ORDER BY id'
+    'SELECT id, name, latitude, longitude, note, state, distance, created_at FROM coordinates ORDER BY distance ASC NULLS LAST, id'
   );
   return rows;
 }
