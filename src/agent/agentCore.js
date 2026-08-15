@@ -208,6 +208,7 @@ async function runToolLoop(userText, { history = [], isAdmin = false, lang = 'zh
   const toolSchemas = toolSchemasFor(isAdmin); // 非管理员看不到 adminOnly 工具
   const files = []; // 要发送的 .txt 附件
   let spots = null; // getCoordinateByName 列全部时,透传供传输层渲染选择按钮
+  let coordinates = null; // 天气/分析工具返回的坐标(供传输层渲染地图按钮)
   let finalText = null;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -244,9 +245,12 @@ async function runToolLoop(userText, { history = [], isAdmin = false, lang = 'zh
         result = { error: true, tool: name, message: err.message };
       }
 
-      // 天气工具:原始 spotConditions → 纯 JSON 附件
+      // 天气工具:原始 spotConditions → 纯 JSON 附件 + 提取坐标
       if (WEATHER_TOOLS.has(name) && result && !result.error) {
         files.push({ filename: spotFileName(result), content: JSON.stringify(result, null, 2) });
+        if (result.latitude != null && result.longitude != null) {
+          coordinates = { latitude: result.latitude, longitude: result.longitude };
+        }
       }
 
       // getCoordinateByName:列全部钓点(coordinates)或多个同名候选(matches)
@@ -265,6 +269,9 @@ async function runToolLoop(userText, { history = [], isAdmin = false, lang = 'zh
           filename: spotFileName(c),
           content: JSON.stringify(c, null, 2),
         });
+        if (c.latitude != null && c.longitude != null) {
+          coordinates = { latitude: c.latitude, longitude: c.longitude };
+        }
         toolContent = { summary: result.summary };
       }
 
@@ -289,7 +296,7 @@ async function runToolLoop(userText, { history = [], isAdmin = false, lang = 'zh
     finalText = finalCompletion.choices?.[0]?.message?.content;
   }
 
-  return buildOutput(finalText, files, lang, spots);
+  return buildOutput(finalText, files, lang, { spots, coordinates });
 }
 
 // ============================================================================
@@ -350,14 +357,15 @@ function spotFileName(c) {
   return `${prefix}-${safeName(label)}-${stamp}.txt`;
 }
 
-/** text = 聊天正文(摘要);files = 附件;spots = 可选钓点列表(供传输层渲染按钮) */
-function buildOutput(finalText, files, lang = 'zh', spots = null) {
+/** text = 聊天正文(摘要);files = 附件;spots = 可选钓点列表;coordinates = 坐标(供地图按钮) */
+function buildOutput(finalText, files, lang = 'zh', { spots = null, coordinates = null } = {}) {
   const out = { text: finalizeText(finalText, lang), files };
   if (spots) out.spots = spots;
+  if (coordinates) out.coordinates = coordinates; // { latitude, longitude }
   return out;
 }
 
-/** analyzeFishing 结果 → { text, files }:summary 作正文,原始 JSON 做 .txt 附件 */
+/** analyzeFishing 结果 → { text, files, coordinates }:summary 作正文,原始 JSON 做 .txt 附件 */
 function analyzeResultToOutput(result, lang) {
   const c = result.conditions || {};
   const files = [
@@ -366,7 +374,8 @@ function analyzeResultToOutput(result, lang) {
       content: JSON.stringify(c, null, 2),
     },
   ];
-  return buildOutput(result.summary, files, lang);
+  const coordinates = c.latitude != null && c.longitude != null ? { latitude: c.latitude, longitude: c.longitude } : null;
+  return buildOutput(result.summary, files, lang, { coordinates });
 }
 
 export default runAgent;

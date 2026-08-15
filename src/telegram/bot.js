@@ -342,6 +342,13 @@ export function startTelegram({ onMessage } = {}) {
         });
         await sendLongMessage(chatId, buildSpotListMessage(result.text, spots), extra);
       } else {
+        // 有坐标:加地图按钮
+        if (result.coordinates) {
+          const { latitude, longitude } = result.coordinates;
+          extra.reply_markup = JSON.stringify({
+            inline_keyboard: [[{ text: '📍 在地图中查看', url: `https://www.google.com/maps?q=${latitude},${longitude}` }]],
+          });
+        }
         await sendLongMessage(chatId, (result.text && String(result.text).trim()) || '(无内容)', extra);
       }
     } catch (err) {
