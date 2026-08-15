@@ -6,6 +6,7 @@
 import { Client, GatewayIntentBits, Partials, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { config } from '../config.js';
 import { findCoordinateById } from '../db/coordinates.js';
+import { buildSpotListMessage, isAdminUser, isAllowedUser } from '../shared/spotFormat.js';
 
 /**
  * 启动 Discord bot。未配置 token 则跳过并返回 null。
@@ -58,8 +59,7 @@ export function startDiscord({ onMessage } = {}) {
     console.log(`[discord] 收到来自 ${who} (id=${uid}) 的消息: ${text}`);
 
     // 白名单检查(allowed 非空时生效)
-    const allowed = config.discord.allowed;
-    if (allowed.length && !allowed.includes(username.toLowerCase()) && !allowed.includes(uid)) {
+    if (!isAllowedUser(config.discord.allowed, username, uid)) {
       console.log(`[discord] 拒绝(不在白名单): ${who} id=${uid}`);
       await msg.reply(
         `你还没被授权使用 fishHelper。把下面这行发给管理员加白名单:\n${username}  id=${uid}`
@@ -72,7 +72,7 @@ export function startDiscord({ onMessage } = {}) {
 
     let result;
     try {
-      const isAdmin = config.admins.includes(`discord_${username.toLowerCase()}`) || config.admins.includes(`discord_${uid}`);
+      const isAdmin = isAdminUser('discord', username, uid);
       result = await onMessage({ text, userId: who, chatId: msg.channel.id, isAdmin });
     } catch (err) {
       console.error('[discord] onMessage 处理异常:', err?.message || err);
@@ -96,7 +96,8 @@ export function startDiscord({ onMessage } = {}) {
     // 如果有 spots 列表,渲染固定格式文字 + 按钮只显示序号+名字
     const components = [];
     if (Array.isArray(result.spots) && result.spots.length) {
-      // Discord 要求 label 1-80 字符且 customId 必须有效,过滤掉没名字/没 id 的
+      // Discord 要求 label 1-80 字符且 customId 必须有效,过滤掉没名字/没 id 的。
+      // 正文和按钮用同一份过滤后的数组,序号天然对齐(不必反查原始下标)。
       const spots = result.spots
         .filter((s) => s && s.id != null && String(s.name || '').trim())
         .slice(0, 25); // Discord 最多 5 行 × 5 按钮 = 25
@@ -104,30 +105,19 @@ export function startDiscord({ onMessage } = {}) {
       // 按钮:序号 + 名字
       for (let i = 0; i < spots.length; i += 5) {
         const row = new ActionRowBuilder();
-        for (const s of spots.slice(i, i + 5)) {
-          const idx = result.spots.indexOf(s) + 1;
+        spots.slice(i, i + 5).forEach((s, j) => {
           row.addComponents(
             new ButtonBuilder()
               .setCustomId(`spot_${s.id}`)
-              .setLabel(`${idx}. ${String(s.name).trim()}`.slice(0, 80))
+              .setLabel(`${i + j + 1}. ${String(s.name).trim()}`.slice(0, 80))
               .setStyle(ButtonStyle.Primary)
           );
-        }
+        });
         components.push(row);
       }
 
-      // 聊天正文:固定格式
-      const lines = result.spots.map((s, i) => {
-        const parts = [];
-        parts.push(`${i + 1}. ${s.name}${s.state ? ` (${s.state})` : ''}`);
-        if (s.note) parts.push(`备注: ${s.note}`);
-        const distParts = [];
-        if (s.distance != null) distParts.push(`${s.distance} mi`);
-        if (s.drivingDuration) distParts.push(s.drivingDuration);
-        if (distParts.length) parts.push(distParts.join(' | '));
-        return parts.join('\n');
-      });
-      replyText = lines.join('\n\n');
+      // 聊天正文:模型引导语 + 代码渲染的固定格式列表
+      replyText = buildSpotListMessage(result.text, spots);
     }
 
     try {
@@ -170,7 +160,7 @@ export function startDiscord({ onMessage } = {}) {
       // 构造"今天怎么样"的请求,直接走 runAgent(复用 intent → analyze 快捷管道)
       const username = interaction.user.username || '';
       const uid = interaction.user.id;
-      const isAdmin = config.admins.includes(`discord_${username.toLowerCase()}`) || config.admins.includes(`discord_${uid}`);
+      const isAdmin = isAdminUser('discord', username, uid);
       const query = `${spot.name} 今天怎么样?`;
       const result = await onMessage({ text: query, userId: username || uid, chatId: interaction.channel.id, isAdmin });
 

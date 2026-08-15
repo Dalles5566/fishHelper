@@ -2,6 +2,7 @@
 // 只负责传输：建连、事件监听、流式回复。业务处理通过注入的 onMessage 解耦。
 import { WSClient, generateReqId } from '@wecom/aibot-node-sdk';
 import { config } from '../config.js';
+import { isAdminUser } from '../shared/spotFormat.js';
 
 const WELCOME_TEXT = '您好！我是钓鱼助手 🎣 告诉我钓点名字，我帮你查风向、风速和涨退潮时间；也可以让我保存新的钓点坐标。';
 const THINKING_TEXT = '正在查询，请稍候…';
@@ -77,7 +78,7 @@ export function startBot({ onMessage, notifyChatId = '' } = {}) {
     // 调业务处理，拿最终结果（{ text, files } 或纯字符串）
     let result;
     try {
-      const isAdmin = config.admins.includes(`wecom_${String(userId).toLowerCase()}`);
+      const isAdmin = isAdminUser('wecom', userId, userId);
       result = await onMessage({ text, userId, frame, isAdmin });
     } catch (err) {
       console.error('[bot] onMessage 处理异常:', err?.message || err);
