@@ -6,18 +6,16 @@ import { config } from '../config.js';
 
 /**
  * 把钓点列表渲染成固定格式的聊天正文(不交给 LLM 措辞,保证稳定)。
- * 每条:
- *   1. 名字 (州)
- *   备注: xxx
- *   12.9 mi | 35 mins
- * @param {Array<{name:string,state?:string,note?:string,distance?:number,drivingDuration?:string}>} spots
+ * @param {Array} spots
+ * @param {'zh'|'en'} [lang='en']
  * @returns {string}
  */
-export function formatSpotList(spots) {
+export function formatSpotList(spots, lang = 'en') {
+  const noteLabel = lang === 'zh' ? '备注' : 'Note';
   return spots
     .map((s, i) => {
       const lines = [`${i + 1}. ${s.name}${s.state ? ` (${s.state})` : ''}`];
-      if (s.note) lines.push(`Note: ${s.note}`);
+      if (s.note) lines.push(`${noteLabel}: ${s.note}`);
       const dist = [];
       if (s.distance != null) dist.push(`${s.distance} mi`);
       if (s.drivingDuration) dist.push(s.drivingDuration);

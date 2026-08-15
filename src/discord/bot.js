@@ -192,7 +192,7 @@ export function startDiscord({ onMessage } = {}) {
       }
 
       // 聊天正文:模型引导语 + 代码渲染的固定格式列表
-      replyText = buildSpotListMessage(result.text, spots);
+      replyText = buildSpotListMessage(result.text, spots, result.lang);
     }
 
     // 有坐标(非钓点列表):加地图链接按钮

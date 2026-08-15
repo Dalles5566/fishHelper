@@ -352,7 +352,7 @@ export function startTelegram({ onMessage } = {}) {
             { text: `${i + 1}. ${s.name}`, callback_data: `spot_${s.id}` },
           ]),
         });
-        await sendLongMessage(chatId, buildSpotListMessage(result.text, spots), extra);
+        await sendLongMessage(chatId, buildSpotListMessage(result.text, spots, result.lang), extra);
       } else {
         // 有坐标:加地图按钮
         if (result.coordinates) {
