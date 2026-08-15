@@ -21,9 +21,10 @@ function main() {
   }
 
   // 共用的消息处理:任何传输层收到文本都走这里 → agent → { text, files }
-  const onMessage = async ({ text, userId, isAdmin = false }) => {
+  // lang 可选:传输层已知用户语言时(按钮回调等无自然语言的场景)透传,省一次检测
+  const onMessage = async ({ text, userId, isAdmin = false, lang = null }) => {
     console.log(`[agent] 处理 ${userId}${isAdmin ? '(管理员)' : ''}: ${text}`);
-    return runAgent(text, { isAdmin });
+    return runAgent(text, { isAdmin, lang });
   };
 
   // 传输层一:企业微信智能机器人(WS 长连接)。notifyChatId 传入才会发企业微信部署通知;

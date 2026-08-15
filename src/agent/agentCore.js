@@ -20,6 +20,7 @@ import { getClient } from './openaiClient.js';
 import { toolSchemasFor, executeTool } from './tools/registerTools.js';
 import analyzeFishing from './tools/analyzeFishing.js';
 import { findCoordinateByName, searchCoordinates } from '../db/coordinates.js';
+import { detectLang } from '../shared/spotFormat.js';
 
 // ============================================================================
 // 入口 / 主流程:两步式调度(读这一个函数即可看懂整体判断顺序)
@@ -30,9 +31,10 @@ import { findCoordinateByName, searchCoordinates } from '../db/coordinates.js';
  * @param {{history?:Array, isAdmin?:boolean}} opts
  * @returns {Promise<{text:string, files:{filename:string,content:string}[]}>}
  */
-export async function runAgent(userText, { history = [], isAdmin = false } = {}) {
+export async function runAgent(userText, { history = [], isAdmin = false, lang: langOverride = null } = {}) {
   const text = String(userText ?? '').trim();
-  const lang = detectLang(text);
+  // 传输层已知语言时(如按钮回调:用户上一条消息的语言)直接用,避免从措辞里再检测一次
+  const lang = langOverride || detectLang(text);
 
   // 第 1 步:轻量意图提取(不带工具 schema、极短 prompt)。失败则直接走兜底
   let intent;
@@ -142,7 +144,7 @@ async function runAnalyzeFast(intent, lang) {
     return null;
   }
   if (!result || result.error || !result.summary) return null; // 出错 → 兜底
-  return analyzeResultToOutput(result, lang);
+  return analyzeResultToOutput(result, lang, { mode, date });
 }
 
 // ============================================================================
@@ -238,16 +240,22 @@ async function runToolLoop(userText, { history = [], isAdmin = false, lang = 'zh
     for (const call of toolCalls) {
       const name = call.function?.name;
       let result;
+      let args = {};
       try {
-        const args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
+        args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
         result = await executeTool(name, args, { isAdmin, lang });
       } catch (err) {
         result = { error: true, tool: name, message: err.message };
       }
 
       // 天气工具:原始 spotConditions → 纯 JSON 附件 + 提取坐标
+      // 文件名前缀用工具入参的 mode/date(getPredictWeather 天然是 prediction)
       if (WEATHER_TOOLS.has(name) && result && !result.error) {
-        files.push({ filename: spotFileName(result), content: JSON.stringify(result, null, 2) });
+        const mode = name === 'getPredictWeather' ? 'prediction' : 'current';
+        files.push({
+          filename: spotFileName(result, { mode, date: args.date }),
+          content: JSON.stringify(result, null, 2),
+        });
         if (result.latitude != null && result.longitude != null) {
           coordinates = { latitude: result.latitude, longitude: result.longitude };
         }
@@ -266,7 +274,7 @@ async function runToolLoop(userText, { history = [], isAdmin = false, lang = 'zh
         fishingAnalysis = result.summary;
         const c = result.conditions || {};
         files.push({
-          filename: spotFileName(c),
+          filename: spotFileName(c, { mode: args.mode, date: args.date }),
           content: JSON.stringify(c, null, 2),
         });
         if (c.latitude != null && c.longitude != null) {
@@ -315,11 +323,6 @@ function etNow() {
   return { dateStr: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}`, weekday: p.weekday, tz };
 }
 
-/** 含中文字符→zh,否则 en */
-function detectLang(text) {
-  return /[\u4e00-\u9fff]/.test(String(text ?? '')) ? 'zh' : 'en';
-}
-
 /** 尝试把值转成有限数字,失败返回 null */
 function toNum(v) {
   if (v == null || v === '') return null;
@@ -339,21 +342,30 @@ function safeName(s) {
   return String(s || 'spot').replace(/[^\w\u4e00-\u9fa5-]+/g, '_').slice(0, 40);
 }
 
-/** 由 spotConditions 生成附件文件名: 前缀-钓点名-日期.txt
- *  C = current(现在), T = today(今天), P = predict(未来某天) */
-function spotFileName(c) {
+/**
+ * 由 spotConditions 生成附件文件名: 前缀-钓点名-日期.txt
+ *   C = current(现在实测) / T = today(今天预测) / P = predict(未来某天预测)
+ *
+ * 前缀由【调用方已知的 mode/date】决定,不从 conditions 的字段反推:
+ * `conditions.date` 来自 astronomy 的 UTC 日期,与美东日期不同基准(美东傍晚后 UTC 已是次日),
+ * 且 astronomy 走 settle() 容错、失败时为 null —— 反推会把预测标成 C 或 P-<明天>。
+ *
+ * @param {object} c spotConditions 结果(取 name/坐标/时间戳)
+ * @param {{mode?:string, date?:string|null}} [opts] 调用工具时用的 mode 与目标日期
+ */
+function spotFileName(c, { mode, date } = {}) {
   const label = c?.name || `${c?.latitude},${c?.longitude}`;
   const today = etNow().dateStr;
-  let prefix, stamp;
-  if (c?.date) {
-    // prediction 模式:今天的 date 就是 T,未来的就是 P
-    prefix = c.date === today ? 'T' : 'P';
-    stamp = c.date;
-  } else {
-    // current 模式
-    prefix = 'C';
-    stamp = c?.currentTime ? c.currentTime.slice(0, 10) : today;
+  const isPredict = mode === 'prediction' || !!date;
+
+  if (!isPredict) {
+    // current:时间戳用实测时间的日期,缺失则用今天(美东)
+    const stamp = c?.currentTime ? c.currentTime.slice(0, 10) : today;
+    return `C-${safeName(label)}-${stamp}.txt`;
   }
+  // prediction:显式给了日期就用它,没给=从现在起滚动 24h(视为"今天")
+  const stamp = date || today;
+  const prefix = stamp === today ? 'T' : 'P';
   return `${prefix}-${safeName(label)}-${stamp}.txt`;
 }
 
@@ -365,12 +377,17 @@ function buildOutput(finalText, files, lang = 'zh', { spots = null, coordinates 
   return out;
 }
 
-/** analyzeFishing 结果 → { text, files, coordinates }:summary 作正文,原始 JSON 做 .txt 附件 */
-function analyzeResultToOutput(result, lang) {
+/**
+ * analyzeFishing 结果 → { text, files, coordinates }:summary 作正文,原始 JSON 做 .txt 附件
+ * @param {object} result analyzeFishing 返回值
+ * @param {'zh'|'en'} lang
+ * @param {{mode?:string, date?:string|null}} [query] 本次查询用的 mode/date(决定附件名前缀)
+ */
+function analyzeResultToOutput(result, lang, query = {}) {
   const c = result.conditions || {};
   const files = [
     {
-      filename: spotFileName(c),
+      filename: spotFileName(c, query),
       content: JSON.stringify(c, null, 2),
     },
   ];

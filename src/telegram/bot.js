@@ -7,32 +7,12 @@ import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
 import { findCoordinateById } from '../db/coordinates.js';
 import { executeTool } from '../agent/tools/registerTools.js';
-import { buildSpotListMessage, isAdminUser, isAllowedUser, parseRawCoords } from '../shared/spotFormat.js';
-
-// ---- 坐标交互菜单:内存缓存 + 会话状态 ----
-const STATE_TTL_MS = 30 * 60 * 1000; // 坐标缓存/待输入状态的存活时间
-const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
-const MAX_SPOT_NAME_LEN = 60; // 过长的名字在按钮 label 上会被截断到认不出
-
-/** 记住每个用户最后一次有文字消息的语言(按钮回调时用) */
-const userLangMap = new Map();
-
-/** 含中文字符→zh,否则 en */
-function detectLang(text) {
-  return /[\u4e00-\u9fff]/.test(String(text ?? '')) ? 'zh' : 'en';
-}
-
-/** 根据语言构造按钮点击后的查询文本 */
-function buildQuery(spotLabel, timeKey, lang) {
-  if (lang === 'zh') {
-    if (timeKey === 'now') return `${spotLabel} 现在怎么样?`;
-    if (timeKey === 'today') return `${spotLabel} 今天怎么样?`;
-    return `${spotLabel} 明天怎么样?`;
-  }
-  if (timeKey === 'now') return `${spotLabel} how is it now?`;
-  if (timeKey === 'today') return `${spotLabel} how is it today?`;
-  return `${spotLabel} how is it tomorrow?`;
-}
+import {
+  buildSpotListMessage, isAdminUser, isAllowedUser, parseRawCoords,
+  detectLang, buildQuery, navButton, stateKey, parseSpotNameNote, validateSpotName,
+  formatSavedSpot, askSpotNamePrompt, coordMenuTitle, coordMenuButtons,
+  STATE_TTL_MS, SWEEP_INTERVAL_MS, PENDING_ADD_TIMEOUT_MS,
+} from '../shared/spotFormat.js';
 
 /**
  * 缓存坐标 { [token]: { lat, lng, chatId, userId, ts } } —— 按钮回调时取回坐标。
@@ -42,33 +22,27 @@ function buildQuery(spotLabel, timeKey, lang) {
 const coordCache = new Map();
 /** 等待用户输入"名字, 备注" { [chatId_userId]: { lat, lng, ts } } */
 const pendingAddSpot = new Map();
+/** 记住每个用户最后一次文字消息的语言 { [uid]: { lang, ts } }(按钮回调时用) */
+const userLang = new Map();
 
-/** 会话状态 key(同一 chat 里按用户隔离) */
-const stateKey = (chatId, userId) => `${chatId}_${userId}`;
-
-/** 缓存坐标并生成操作菜单按钮 */
-function buildCoordMenu(lat, lng, chatId, userId, isAdmin) {
+/** 缓存坐标并生成操作菜单(按钮 + 标题,语言跟随用户) */
+function buildCoordMenu(lat, lng, chatId, userId, isAdmin, lang) {
   const token = randomUUID().slice(0, 8); // 随机短 token,重启后不会与旧按钮撞号
   coordCache.set(token, { lat, lng, chatId: String(chatId), userId: String(userId), ts: Date.now() });
-  const buttons = [];
-  if (isAdmin) buttons.push([{ text: '📍 添加钓点', callback_data: `coord_${token}_add` }]);
-  buttons.push(
-    [{ text: '🔍 查询现在', callback_data: `coord_${token}_now` }],
-    [{ text: '📊 查询今天', callback_data: `coord_${token}_today` }],
-    [{ text: '📅 查询明天', callback_data: `coord_${token}_tomorrow` }],
-  );
   return {
-    text: `收到坐标 (${lat.toFixed(5)}, ${lng.toFixed(5)})\n请选择操作:`,
-    reply_markup: JSON.stringify({ inline_keyboard: buttons }),
+    text: coordMenuTitle(lat, lng, lang),
+    reply_markup: JSON.stringify({
+      // 每行 1 个按钮(Telegram 单按钮会撑满整行,可读性最好)
+      inline_keyboard: coordMenuButtons(token, isAdmin, lang).map((b) => [{ text: b.label, callback_data: b.id }]),
+    }),
   };
 }
 
-/** 解析"名字, 备注"(只在第一个逗号切分;名字里的逗号请写在备注侧) */
-function parseSpotNameNote(text) {
-  const commaIdx = text.indexOf(',');
-  const name = (commaIdx > 0 ? text.slice(0, commaIdx) : text).trim();
-  const note = commaIdx > 0 ? text.slice(commaIdx + 1).trim() || null : null;
-  return { name, note };
+/** 把导航按钮包成 Telegram 的 reply_markup(无坐标返回空对象) */
+function navExtra(coordinates, lang) {
+  const nav = navButton(coordinates, lang);
+  if (!nav) return {};
+  return { reply_markup: JSON.stringify({ inline_keyboard: [[{ text: nav.label, url: nav.url }]] }) };
 }
 
 /** 未授权用户的统一回复(文本和位置两条路径都用,行为一致) */
@@ -93,13 +67,19 @@ export function startTelegram({ onMessage } = {}) {
   let offset = 0;
   let running = true;
 
-  // 定期清理过期的坐标缓存/待输入状态。unref() 让它不拖住进程退出。
+  // 定期清理过期的坐标缓存/待输入状态/语言记忆。unref() 让它不拖住进程退出。
   const sweepTimer = setInterval(() => {
     const cutoff = Date.now() - STATE_TTL_MS;
     for (const [k, v] of coordCache) if (v.ts < cutoff) coordCache.delete(k);
     for (const [k, v] of pendingAddSpot) if (v.ts < cutoff) pendingAddSpot.delete(k);
+    // 语言记忆留得久一点(用户可能隔很久才点按钮),但也要有上界
+    const langCutoff = Date.now() - 24 * 60 * 60 * 1000;
+    for (const [k, v] of userLang) if (v.ts < langCutoff) userLang.delete(k);
   }, SWEEP_INTERVAL_MS);
   sweepTimer.unref?.();
+
+  /** 取用户语言(无记录时用默认语言) */
+  const langOf = (uid) => userLang.get(uid)?.lang || config.defaultLang;
 
   async function call(method, body, isForm = false) {
     const opts = { method: 'POST' };
@@ -154,16 +134,19 @@ export function startTelegram({ onMessage } = {}) {
         const parts = data.split('_'); // ['coord', token, action]
         const cacheToken = parts[1];
         const action = parts[2]; // 'add' | 'now' | 'today' | 'tomorrow'
-        const cached = coordCache.get(cacheToken);
-        if (!cached) {
-          call('answerCallbackQuery', { callback_query_id: cb.id, text: '坐标已过期,请重新发送' }).catch(() => {});
-          return;
-        }
         const username = cb.from?.username || '';
         const uid = String(cb.from?.id || '');
+        const lang = langOf(uid);
+        const cached = coordCache.get(cacheToken);
+        if (!cached) {
+          const msg = lang === 'zh' ? '坐标已过期,请重新发送' : 'Coordinates expired, send them again';
+          call('answerCallbackQuery', { callback_query_id: cb.id, text: msg }).catch(() => {});
+          return;
+        }
         // 群里别人也能看到这个菜单:只让发坐标的本人操作(权限之外的"这是我的菜单"语义)
         if (cached.userId !== uid) {
-          call('answerCallbackQuery', { callback_query_id: cb.id, text: '这不是你的坐标菜单' }).catch(() => {});
+          const msg = lang === 'zh' ? '这不是你的坐标菜单' : "This isn't your menu";
+          call('answerCallbackQuery', { callback_query_id: cb.id, text: msg }).catch(() => {});
           return;
         }
         const isAdmin = isAdminUser('tg', username, uid);
@@ -171,36 +154,32 @@ export function startTelegram({ onMessage } = {}) {
         if (action === 'add') {
           // 添加钓点:需要管理员权限
           if (!isAdmin) {
-            call('answerCallbackQuery', { callback_query_id: cb.id, text: '只有管理员能添加钓点' }).catch(() => {});
+            const msg = lang === 'zh' ? '只有管理员能添加钓点' : 'Admins only';
+            call('answerCallbackQuery', { callback_query_id: cb.id, text: msg }).catch(() => {});
             return;
           }
           call('answerCallbackQuery', { callback_query_id: cb.id }).catch(() => {});
-          // 存入 pending 状态,等用户下一条消息输入"名字,备注"
+          // 先把提示发出去,成功了再挂 pending —— 否则提示发失败用户不知情,
+          // 却已进入"下一条消息当钓点名"的状态
+          await sendMessage(cbChatId, askSpotNamePrompt(cached, lang));
           pendingAddSpot.set(stateKey(cbChatId, uid), { lat: cached.lat, lng: cached.lng, ts: Date.now() });
-          await sendMessage(cbChatId, `请输入钓点名称和备注,格式:\n名字, 备注\n\n例如: Fort Adams, 石头堤坝尽头\n\n坐标: (${cached.lat.toFixed(5)}, ${cached.lng.toFixed(5)})`);
           return;
         }
 
         // 查询操作:now / today / tomorrow
-        call('answerCallbackQuery', { callback_query_id: cb.id, text: '正在分析...' }).catch(() => {});
+        const analyzing = lang === 'zh' ? '正在分析...' : 'Analyzing...';
+        call('answerCallbackQuery', { callback_query_id: cb.id, text: analyzing }).catch(() => {});
         call('sendChatAction', { chat_id: cbChatId, action: 'typing' }).catch(() => {});
 
-        const lang = userLangMap.get(uid) || 'en';
         const queryText = buildQuery(`${cached.lat}, ${cached.lng}`, action, lang);
 
         try {
-          const result = await onMessage({ text: queryText, userId: username || uid, chatId: String(cbChatId), isAdmin });
-          const r = typeof result === 'string' ? { text: result, files: [] } : result;
+          const result = await onMessage({ text: queryText, userId: username || uid, chatId: String(cbChatId), isAdmin, lang });
+          const r = typeof result === 'string' ? { text: result, files: [], lang } : result;
           for (const f of r.files || []) {
             await sendDocument(cbChatId, f.filename, f.content).catch(() => {});
           }
-          const extra = {};
-          if (r.coordinates) {
-            extra.reply_markup = JSON.stringify({
-              inline_keyboard: [[{ text: r.lang === 'zh' ? '📍 开始出发咯!钓鱼佬' : "📍 Let's roll, fish bum!", url: `https://www.google.com/maps/dir/?api=1&destination=${r.coordinates.latitude},${r.coordinates.longitude}` }]],
-            });
-          }
-          await sendLongMessage(cbChatId, (r.text && String(r.text).trim()) || '(无内容)', extra);
+          await sendLongMessage(cbChatId, (r.text && String(r.text).trim()) || '(无内容)', navExtra(r.coordinates, r.lang || lang));
         } catch (err) {
           console.error('[tg] 坐标菜单回调异常:', err?.message || err);
           await sendMessage(cbChatId, '抱歉,处理时出错了。').catch(() => {});
@@ -220,28 +199,22 @@ export function startTelegram({ onMessage } = {}) {
       const spotId = Number(data.slice(5));
       if (!Number.isFinite(spotId) || spotId <= 0) return; // 防 NaN 打到数据库
       try {
-        const spot = await findCoordinateById(spotId);
-        if (!spot) {
-          await sendMessage(cbChatId, '钓点未找到,可能已被删除。');
-          return;
-        }
         const username = cb.from?.username || '';
         const uid = String(cb.from?.id || '');
+        const lang = langOf(uid);
+        const spot = await findCoordinateById(spotId);
+        if (!spot) {
+          await sendMessage(cbChatId, lang === 'zh' ? '钓点未找到,可能已被删除。' : 'Spot not found, it may have been deleted.');
+          return;
+        }
         const isAdmin = isAdminUser('tg', username, uid);
-        const lang = userLangMap.get(uid) || 'en';
         const queryText = buildQuery(spot.name, 'today', lang);
-        const result = await onMessage({ text: queryText, userId: username || uid, chatId: String(cbChatId), isAdmin });
-        const r = typeof result === 'string' ? { text: result, files: [] } : result;
+        const result = await onMessage({ text: queryText, userId: username || uid, chatId: String(cbChatId), isAdmin, lang });
+        const r = typeof result === 'string' ? { text: result, files: [], lang } : result;
         for (const f of r.files || []) {
           await sendDocument(cbChatId, f.filename, f.content).catch(() => {});
         }
-        const extra = {};
-        if (r.coordinates) {
-          extra.reply_markup = JSON.stringify({
-            inline_keyboard: [[{ text: r.lang === 'zh' ? '📍 开始出发咯!钓鱼佬' : "📍 Let's roll, fish bum!", url: `https://www.google.com/maps/dir/?api=1&destination=${r.coordinates.latitude},${r.coordinates.longitude}` }]],
-          });
-        }
-        await sendLongMessage(cbChatId, (r.text && String(r.text).trim()) || '(无内容)', extra);
+        await sendLongMessage(cbChatId, (r.text && String(r.text).trim()) || '(无内容)', navExtra(r.coordinates, r.lang || lang));
       } catch (err) {
         console.error('[tg] 按钮回调处理异常:', err?.message || err);
         await sendMessage(cbChatId, '抱歉,处理时出错了。').catch(() => {});
@@ -269,7 +242,9 @@ export function startTelegram({ onMessage } = {}) {
       }
       // 新坐标作废上一轮未完成的"添加钓点":否则下一条文本会被存到旧坐标上
       pendingAddSpot.delete(stateKey(chatId, uid));
-      const menu = buildCoordMenu(lat, lng, chatId, uid, isAdminUser('tg', username, uid));
+      // 位置消息没有自然语言可检测,用该用户上一次的语言(无记录则用默认)
+      const lang = langOf(uid);
+      const menu = buildCoordMenu(lat, lng, chatId, uid, isAdminUser('tg', username, uid), lang);
       await sendMessage(chatId, menu.text, { reply_markup: menu.reply_markup });
       return;
     }
@@ -277,8 +252,6 @@ export function startTelegram({ onMessage } = {}) {
     const text = msg?.text?.trim();
     if (!text) return;
     console.log(`[tg] 收到来自 ${who} (id=${uid}) 的消息: ${text}`);
-    // 记住用户语言(按钮回调时用)
-    userLangMap.set(uid, detectLang(text));
 
     // 白名单:allowed 非空时,只放行用户名或数字 id 命中的人(省 OpenAI 额度)
     if (!isAllowedUser(config.telegram.allowed, username, uid)) {
@@ -286,6 +259,11 @@ export function startTelegram({ onMessage } = {}) {
       await sendMessage(chatId, denyText(username, uid)).catch(() => {});
       return;
     }
+
+    // 记住用户语言(按钮回调时用)。放在白名单之后:否则任何陌生人发一条消息
+    // 都会在这个 Map 里留下条目。
+    const lang = detectLang(text);
+    userLang.set(uid, { lang, ts: Date.now() });
 
     const isAdmin = isAdminUser('tg', username, uid);
     const pendingKey = stateKey(chatId, uid);
@@ -297,7 +275,7 @@ export function startTelegram({ onMessage } = {}) {
     if (rawCoords) {
       console.log(`[tg] 裸坐标识别: ${rawCoords.lat}, ${rawCoords.lng}`);
       pendingAddSpot.delete(pendingKey); // 新坐标作废上一轮未完成的添加
-      const menu = buildCoordMenu(rawCoords.lat, rawCoords.lng, chatId, uid, isAdmin);
+      const menu = buildCoordMenu(rawCoords.lat, rawCoords.lng, chatId, uid, isAdmin, lang);
       await sendMessage(chatId, menu.text, { reply_markup: menu.reply_markup });
       return;
     }
@@ -306,18 +284,17 @@ export function startTelegram({ onMessage } = {}) {
     const pending = pendingAddSpot.get(pendingKey);
     if (pending) {
       pendingAddSpot.delete(pendingKey);
-      // 3 分钟内没输入名字 → 自动取消
-      if (Date.now() - pending.ts > 3 * 60 * 1000) {
-        await sendMessage(chatId, '添加钓点已超时取消(3 分钟),请重新发送坐标。');
+      // 超时未输入名字 → 自动取消(防把正常提问当钓点名存进去)
+      if (Date.now() - pending.ts > PENDING_ADD_TIMEOUT_MS) {
+        await sendMessage(chatId, lang === 'zh'
+          ? '添加钓点已超时取消(3 分钟),请重新发送坐标。'
+          : 'Add-spot timed out (3 min). Send the coordinates again.');
         return;
       }
       const { name: spotName, note: spotNote } = parseSpotNameNote(text);
-      if (!spotName) {
-        await sendMessage(chatId, '名字不能为空,请重新发送位置或坐标再试。');
-        return;
-      }
-      if (spotName.length > MAX_SPOT_NAME_LEN) {
-        await sendMessage(chatId, `名字太长(超过 ${MAX_SPOT_NAME_LEN} 字),请换个短点的,再重新发送位置。`);
+      const nameErr = validateSpotName(spotName, lang);
+      if (nameErr) {
+        await sendMessage(chatId, nameErr);
         return;
       }
       try {
@@ -331,12 +308,7 @@ export function startTelegram({ onMessage } = {}) {
           await sendMessage(chatId, `添加钓点失败: ${result.message || '未知错误'}`);
           return;
         }
-        const saved = result.coordinate;
-        const lines = [`✅ 已保存钓点: ${saved.name}`, `坐标: (${saved.latitude}, ${saved.longitude})`];
-        if (saved.state) lines.push(`州: ${saved.state}`);
-        if (saved.distance != null) lines.push(`距离: ${saved.distance} mi`);
-        if (saved.note) lines.push(`备注: ${saved.note}`);
-        await sendMessage(chatId, lines.join('\n'));
+        await sendMessage(chatId, formatSavedSpot(result.coordinate, lang));
       } catch (err) {
         console.error('[tg] 添加钓点失败:', err?.message || err);
         await sendMessage(chatId, `添加钓点失败: ${err?.message || '未知错误'}`);
@@ -349,12 +321,13 @@ export function startTelegram({ onMessage } = {}) {
 
     let result;
     try {
-      result = await onMessage({ text, userId: who, chatId: String(chatId), isAdmin });
+      result = await onMessage({ text, userId: who, chatId: String(chatId), isAdmin, lang });
     } catch (err) {
       console.error('[tg] onMessage 处理异常:', err?.message || err);
-      result = { text: '抱歉,处理时出错了,请稍后再试。', files: [] };
+      result = { text: lang === 'zh' ? '抱歉,处理时出错了,请稍后再试。' : 'Sorry, something went wrong. Try again later.', files: [], lang };
     }
-    if (typeof result === 'string') result = { text: result, files: [] };
+    if (typeof result === 'string') result = { text: result, files: [], lang };
+    if (!result.lang) result.lang = lang; // 兜底路径也带上语言,避免下游 fallback 到英文
 
     for (const f of result.files || []) {
       try {
@@ -364,24 +337,20 @@ export function startTelegram({ onMessage } = {}) {
       }
     }
     try {
-      const extra = {};
       // 有 spots 列表:代码渲染固定格式正文(保留模型引导语)+ 按钮只显示序号+名字
       if (Array.isArray(result.spots) && result.spots.length) {
         const spots = result.spots.filter((s) => s && s.id != null && String(s.name || '').trim());
-        extra.reply_markup = JSON.stringify({
-          inline_keyboard: spots.slice(0, 20).map((s, i) => [
-            { text: `${i + 1}. ${s.name}`, callback_data: `spot_${s.id}` },
-          ]),
-        });
+        const extra = {
+          reply_markup: JSON.stringify({
+            inline_keyboard: spots.slice(0, 20).map((s, i) => [
+              { text: `${i + 1}. ${s.name}`, callback_data: `spot_${s.id}` },
+            ]),
+          }),
+        };
         await sendLongMessage(chatId, buildSpotListMessage(result.text, spots, result.lang), extra);
       } else {
-        // 有坐标:加地图按钮
-        if (result.coordinates) {
-          const { latitude, longitude } = result.coordinates;
-          extra.reply_markup = JSON.stringify({
-            inline_keyboard: [[{ text: result.lang === 'zh' ? '📍 开始出发咯!钓鱼佬' : "📍 Let's roll, fish bum!", url: `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}` }]],
-          });
-        }
+        // 有坐标:加导航按钮
+        const extra = navExtra(result.coordinates, result.lang);
         await sendLongMessage(chatId, (result.text && String(result.text).trim()) || '(无内容)', extra);
       }
     } catch (err) {

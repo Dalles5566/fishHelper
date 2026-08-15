@@ -525,7 +525,8 @@ runAgent(userText)
 ```
 实时开车时间通过 Google Distance Matrix API(`departure_time=now`,含路况)查询,5 分钟 TTL 缓存。
 
-点击按钮 → 触发 `"spotName 今天怎么样?"` 走 `onMessage` → 走 analyze 快捷管道 → 回复分析报告。
+点击按钮 → `buildQuery(spot.name, 'today', lang)` 按用户语言构造查询(中文 `"X 今天怎么样?"` /
+英文 `"X how is it today?"`)→ 走 `onMessage`(带 `lang`)→ analyze 快捷管道 → 回复分析报告。
 按钮本身不消耗额外 token(纯传输层渲染);点击后的分析跟手动输入完全一致。
 
 ## 14. 坐标/Location 交互菜单(Discord + Telegram)
@@ -547,16 +548,40 @@ runAgent(userText)
 
 ## 15. 导航按钮(Discord + Telegram)
 
-所有分析结果(Current / Today / Predict)回复时带一个 URL 按钮:
-- **Telegram**:"📍 导航到这里"(InlineKeyboard URL 按钮)
-- **Discord**:"📍 导航到这里"(ButtonStyle.Link)
+所有分析结果(Current / Today / Predict)回复时带一个 URL 按钮,文案跟随语言:
+中文 "📍 开始出发咯!钓鱼佬" / 英文 "📍 Let's roll, fish bum!"。
+- **Telegram**:InlineKeyboard 的 `url` 按钮(点击有一次 "Open this link?" 确认,Telegram 强制)
+- **Discord**:`ButtonStyle.Link`(直接跳转)
 
-链接格式:`https://www.google.com/maps/dir/?api=1&destination={lat},{lng}`
-点击后直接打开 Google Maps 导航(从用户当前位置到钓点)。
+链接 `https://www.google.com/maps/dir/?api=1&destination={lat},{lng}` —— 直接开导航(不是只看地图)。
+文案 + URL 由 `navButton(coordinates, lang)` 统一产出,各传输层只负责包成自己的按钮类型。
 
-## 16. 共享模块(`src/shared/`)
+坐标来源:`runToolLoop` / `runAnalyzeFast` 从天气或 analyzeFishing 的结果里取 `{latitude, longitude}`
+放进 `runAgent` 返回值的 `coordinates`。**已知限制**:多钓点对比查询时它是单槽位,只指向最后一个(见 known-issues.md)。
 
-消除三个传输层的重复代码:
-- `spotFormat.js`:formatSpotList / buildSpotListMessage / isAdminUser / isAllowedUser / parseRawCoords
-- `httpFetch.js`:fetchWithTimeout(15s AbortSignal,与 services/dataSource 约定一致)
+## 16. 语言跟随(detect + 记忆 + 兜底)
+
+回复语言跟随用户,三层决定:
+1. **有文字**:`detectLang(text)`(含中文字符→zh)。传输层同时把结果记进 `userLang`(带 ts,进 sweep)。
+2. **无文字**(按钮点击、Telegram Location、裸坐标):用 `userLang` 里该用户**最近一条文字消息**的语言。
+   按钮回调用 `buildQuery(label, timeKey, lang)` 按该语言构造查询,并把 `lang` 直接传给 `runAgent`
+   (`runAgent(text, { lang })` 命中时跳过 `detectLang`,不再从措辞反推)。
+3. **无记录**(进程刚重启):`.env` 的 `DEFAULT_LANG`(默认 en)。
+
+`userLang` 的写入排在**白名单校验之后** —— 否则任何陌生人发一条消息都会留下条目。
+
+## 17. 共享模块(`src/shared/`)
+
+消除三个传输层的重复代码(Telegram / Discord 的交互逻辑现已对等,文案与状态约定全部同源):
+- `spotFormat.js`
+  - 渲染:`formatSpotList` / `buildSpotListMessage` / `formatSavedSpot` / `askSpotNamePrompt` /
+    `coordMenuTitle` / `coordMenuButtons` / `navButton`(均支持 lang)
+  - 解析与校验:`parseRawCoords` / `parseSpotNameNote`(中英文逗号) / `validateSpotName`
+  - 权限:`isAdminUser` / `isAllowedUser`
+  - 语言:`detectLang` / `buildQuery`
+  - 状态约定:`stateKey` / `STATE_TTL_MS` / `SWEEP_INTERVAL_MS` / `PENDING_ADD_TIMEOUT_MS` / `MAX_SPOT_NAME_LEN`
+- `httpFetch.js`:`fetchWithTimeout`(15s AbortSignal,与 services/dataSource 约定一致)
+
+> `STATE_TTL_MS` = **14 分钟**,刻意小于 Discord interaction token 的 15 分钟有效期:
+> 缓存不能比 token 活得久,否则点旧按钮会命中缓存、然后在回复时抛 Unknown interaction。
 

@@ -367,6 +367,45 @@
 
 ---
 
+## ✅ 任务 19:语言跟随 + 导航按钮 + Discord 对等 + 第二轮代码审查修复(已上线)
+详见 design.md §15 / §16 / §17,遗留项见 known-issues.md。
+
+**新功能**
+- [x] Discord 裸坐标交互菜单(与 Telegram 对等:菜单 / 两步添加 / userId 校验 / pending 超时)
+- [x] 所有分析结果带导航按钮(Google Maps Directions,点击直接开导航),文案跟随语言
+      (中 "📍 开始出发咯!钓鱼佬" / 英 "📍 Let's roll, fish bum!")
+- [x] 附件文件名 `C/T/P-钓点名-日期.txt`(C=现在 / T=今天 / P=未来某天)
+- [x] 语言跟随三层:文字检测 → `userLang` 记忆(按钮/位置/裸坐标场景)→ `DEFAULT_LANG` 兜底
+- [x] `runAgent(text, { lang })` 接受语言入参,按钮回调不再靠措辞反推
+- [x] pending 添加钓点 3 分钟超时自动取消
+
+**Bug 修复**
+- [x] **附件前缀 C/T/P 判断错误**:原实现从 `conditions.date`(astronomy 的 UTC 日期)反推,
+      与美东日期不同基准 → 美东 20:00 后问"今天"会得到 `P-<明天>`,`T` 不可达;
+      astronomy 失败时预测被标成 `C`。改由调用方已知的 mode/date 决定
+- [x] **`buildOutput` 漏了把 `lang` 放进返回对象** → 传输层拿到 undefined,备注/导航文案全 fallback 英文
+- [x] **`buildSpotListMessage` 签名漏了 lang 参数** → 传进去了但没接
+- [x] `userLangMap` 只增不减且写入排在白名单之前 → 改为带 ts 进 sweep,写入挪到白名单之后
+- [x] Discord `spot_` 回调导航文案硬编码中文(英文用户拿到中文按钮)
+- [x] Discord 三处 `interaction.reply` / `deferReply` 无兜底 → 全部加 catch;
+      `add` 分支改为先回执成功再挂 pending(否则提示发失败用户不知情却已进入 pending)
+- [x] `STATE_TTL_MS` 30 分钟 > Discord interaction token 15 分钟 → 压到 14 分钟,过期分支才真的可达
+- [x] `ephemeral: true` 已弃用 → `flags: MessageFlags.Ephemeral`
+- [x] 传输层异常/字符串兜底路径补 `lang`,避免中文用户看到 `Note:`
+
+**冗余消除(全部收进 `src/shared/spotFormat.js`)**
+- [x] `detectLang` 三份 → 一份(agentCore 也改为 import)
+- [x] `buildQuery` / `parseSpotNameNote` / 会话状态常量 / 坐标菜单文案与按钮定义 两份 → 一份
+- [x] 导航按钮文案 + URL 复制六处 → `navButton(coordinates, lang)` 一处
+- [x] 新增 `validateSpotName`(顺带补上"钓点名不能是坐标"的校验)、`formatSavedSpot`、
+      `askSpotNamePrompt`、`coordMenuTitle`、`coordMenuButtons`
+- [x] `parseSpotNameNote` 支持中文逗号「，」
+- [x] Discord 坐标菜单的分行循环(最多 4 个按钮,永远只走一轮)摊平成单行
+
+**状态:已上线**
+
+---
+
 ## 决策记录
 - 传输:**企业微信智能机器人 + WebSocket 长连接**(`@wecom/aibot-node-sdk`)
 - 凭据:**botId + secret**(智能机器人),非自建应用 agentId/corpId

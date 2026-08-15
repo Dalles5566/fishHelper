@@ -87,7 +87,11 @@ Non-admin users can query and analyze spots, but cannot add or modify them.
 
 ## Navigation
 
-Every analysis result (current, today, or future) includes a **"📍 导航到这里"** button that opens Google Maps directions directly — one tap to start navigation to the fishing spot.
+Every analysis result (current, today, or future) includes a navigation button that opens Google Maps directions directly — one tap to start navigating to the fishing spot. The label follows your language: **"📍 开始出发咯!钓鱼佬"** in Chinese, **"📍 Let's roll, fish bum!"** in English.
+
+## Language
+
+Reply language follows your message: write in Chinese and you get Chinese, write in English and you get English. Since buttons and coordinate pins carry no language, the bot remembers the language of your most recent text message and uses that. If it has no record yet (fresh restart), it falls back to `DEFAULT_LANG` from the env config.
 
 ## What's in each spot?
 
