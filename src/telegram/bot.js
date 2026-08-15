@@ -166,9 +166,9 @@ export function startTelegram({ onMessage } = {}) {
         call('sendChatAction', { chat_id: cbChatId, action: 'typing' }).catch(() => {});
 
         let queryText;
-        if (action === 'now') queryText = `${cached.lat}, ${cached.lng} 现在怎么样?`;
-        else if (action === 'today') queryText = `${cached.lat}, ${cached.lng} 今天怎么样?`;
-        else queryText = `${cached.lat}, ${cached.lng} 明天怎么样?`;
+        if (action === 'now') queryText = `${cached.lat}, ${cached.lng} how is it now?`;
+        else if (action === 'today') queryText = `${cached.lat}, ${cached.lng} how is it today?`;
+        else queryText = `${cached.lat}, ${cached.lng} how is it tomorrow?`;
 
         try {
           const result = await onMessage({ text: queryText, userId: username || uid, chatId: String(cbChatId), isAdmin });
@@ -210,7 +210,7 @@ export function startTelegram({ onMessage } = {}) {
         const username = cb.from?.username || '';
         const uid = String(cb.from?.id || '');
         const isAdmin = isAdminUser('tg', username, uid);
-        const queryText = `${spot.name} 今天怎么样?`;
+        const queryText = `${spot.name} how is it today?`;
         const result = await onMessage({ text: queryText, userId: username || uid, chatId: String(cbChatId), isAdmin });
         const r = typeof result === 'string' ? { text: result, files: [] } : result;
         for (const f of r.files || []) {
