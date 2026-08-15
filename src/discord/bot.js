@@ -200,7 +200,7 @@ export function startDiscord({ onMessage } = {}) {
       const { latitude, longitude } = result.coordinates;
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setLabel('📍 导航到这里')
+          .setLabel(result.lang === 'zh' ? '📍 开始出发咯!钓鱼佬' : "📍 Let's roll, fish bum!")
           .setStyle(ButtonStyle.Link)
           .setURL(`https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}`)
       );
@@ -274,7 +274,7 @@ export function startDiscord({ onMessage } = {}) {
         const mapComponents = [];
         if (r.coordinates) {
           mapComponents.push(new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setLabel('📍 导航到这里').setStyle(ButtonStyle.Link)
+            new ButtonBuilder().setLabel(r.lang === 'zh' ? '📍 开始出发咯!钓鱼佬' : "📍 Let's roll, fish bum!").setStyle(ButtonStyle.Link)
               .setURL(`https://www.google.com/maps/dir/?api=1&destination=${r.coordinates.latitude},${r.coordinates.longitude}`)
           ));
         }

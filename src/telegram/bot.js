@@ -179,7 +179,7 @@ export function startTelegram({ onMessage } = {}) {
           const extra = {};
           if (r.coordinates) {
             extra.reply_markup = JSON.stringify({
-              inline_keyboard: [[{ text: '📍 导航到这里', url: `https://www.google.com/maps/dir/?api=1&destination=${r.coordinates.latitude},${r.coordinates.longitude}` }]],
+              inline_keyboard: [[{ text: r.lang === 'zh' ? '📍 开始出发咯!钓鱼佬' : "📍 Let's roll, fish bum!", url: `https://www.google.com/maps/dir/?api=1&destination=${r.coordinates.latitude},${r.coordinates.longitude}` }]],
             });
           }
           await sendLongMessage(cbChatId, (r.text && String(r.text).trim()) || '(无内容)', extra);
@@ -219,7 +219,7 @@ export function startTelegram({ onMessage } = {}) {
         const extra = {};
         if (r.coordinates) {
           extra.reply_markup = JSON.stringify({
-            inline_keyboard: [[{ text: '📍 导航到这里', url: `https://www.google.com/maps/dir/?api=1&destination=${r.coordinates.latitude},${r.coordinates.longitude}` }]],
+            inline_keyboard: [[{ text: r.lang === 'zh' ? '📍 开始出发咯!钓鱼佬' : "📍 Let's roll, fish bum!", url: `https://www.google.com/maps/dir/?api=1&destination=${r.coordinates.latitude},${r.coordinates.longitude}` }]],
           });
         }
         await sendLongMessage(cbChatId, (r.text && String(r.text).trim()) || '(无内容)', extra);
@@ -358,7 +358,7 @@ export function startTelegram({ onMessage } = {}) {
         if (result.coordinates) {
           const { latitude, longitude } = result.coordinates;
           extra.reply_markup = JSON.stringify({
-            inline_keyboard: [[{ text: '📍 导航到这里', url: `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}` }]],
+            inline_keyboard: [[{ text: result.lang === 'zh' ? '📍 开始出发咯!钓鱼佬' : "📍 Let's roll, fish bum!", url: `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}` }]],
           });
         }
         await sendLongMessage(chatId, (result.text && String(result.text).trim()) || '(无内容)', extra);
