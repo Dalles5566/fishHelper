@@ -120,6 +120,11 @@ export function startDiscord({ onMessage } = {}) {
     const pending = pendingAddSpot.get(pendingKey);
     if (pending) {
       pendingAddSpot.delete(pendingKey);
+      // 3 分钟内没输入名字 → 自动取消
+      if (Date.now() - pending.ts > 3 * 60 * 1000) {
+        await msg.reply('添加钓点已超时取消(3 分钟),请重新发送坐标。');
+        return;
+      }
       const commaIdx = text.indexOf(',');
       const spotName = (commaIdx > 0 ? text.slice(0, commaIdx) : text).trim();
       const spotNote = commaIdx > 0 ? text.slice(commaIdx + 1).trim() || null : null;

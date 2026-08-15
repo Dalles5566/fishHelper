@@ -273,6 +273,11 @@ export function startTelegram({ onMessage } = {}) {
     const pending = pendingAddSpot.get(pendingKey);
     if (pending) {
       pendingAddSpot.delete(pendingKey);
+      // 3 分钟内没输入名字 → 自动取消
+      if (Date.now() - pending.ts > 3 * 60 * 1000) {
+        await sendMessage(chatId, '添加钓点已超时取消(3 分钟),请重新发送坐标。');
+        return;
+      }
       const { name: spotName, note: spotNote } = parseSpotNameNote(text);
       if (!spotName) {
         await sendMessage(chatId, '名字不能为空,请重新发送位置或坐标再试。');
