@@ -15,6 +15,24 @@ const STATE_TTL_MS = 30 * 60 * 1000;
 const MAX_SPOT_NAME_LEN = 60;
 const coordCache = new Map();
 const pendingAddSpot = new Map();
+const userLangMap = new Map();
+
+/** 含中文字符→zh,否则 en */
+function detectLang(text) {
+  return /[\u4e00-\u9fff]/.test(String(text ?? '')) ? 'zh' : 'en';
+}
+
+/** 根据语言构造按钮点击后的查询文本 */
+function buildQuery(spotLabel, timeKey, lang) {
+  if (lang === 'zh') {
+    if (timeKey === 'now') return `${spotLabel} 现在怎么样?`;
+    if (timeKey === 'today') return `${spotLabel} 今天怎么样?`;
+    return `${spotLabel} 明天怎么样?`;
+  }
+  if (timeKey === 'now') return `${spotLabel} how is it now?`;
+  if (timeKey === 'today') return `${spotLabel} how is it today?`;
+  return `${spotLabel} how is it tomorrow?`;
+}
 
 /**
  * 启动 Discord bot。未配置 token 则跳过并返回 null。
@@ -73,6 +91,7 @@ export function startDiscord({ onMessage } = {}) {
     const uid = msg.author.id;
     const who = username || uid;
     console.log(`[discord] 收到来自 ${who} (id=${uid}) 的消息: ${text}`);
+    userLangMap.set(uid, detectLang(text));
 
     // 白名单检查(allowed 非空时生效)
     if (!isAllowedUser(config.discord.allowed, username, uid)) {
@@ -261,10 +280,8 @@ export function startDiscord({ onMessage } = {}) {
 
       // 查询操作
       await interaction.deferReply();
-      let queryText;
-      if (action === 'now') queryText = `${cached.lat}, ${cached.lng} how is it now?`;
-      else if (action === 'today') queryText = `${cached.lat}, ${cached.lng} how is it today?`;
-      else queryText = `${cached.lat}, ${cached.lng} how is it tomorrow?`;
+      const lang = userLangMap.get(uid) || 'en';
+      const queryText = buildQuery(`${cached.lat}, ${cached.lng}`, action, lang);
 
       try {
         const result = await onMessage({ text: queryText, userId: username || uid, chatId: interaction.channel.id, isAdmin });
@@ -306,7 +323,8 @@ export function startDiscord({ onMessage } = {}) {
       const username = interaction.user.username || '';
       const uid = interaction.user.id;
       const isAdmin = isAdminUser('discord', username, uid);
-      const query = `${spot.name} how is it today?`;
+      const lang = userLangMap.get(uid) || 'en';
+      const query = buildQuery(spot.name, 'today', lang);
       const result = await onMessage({ text: query, userId: username || uid, chatId: interaction.channel.id, isAdmin });
 
       const r = typeof result === 'string' ? { text: result, files: [] } : result;

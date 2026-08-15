@@ -14,6 +14,26 @@ const STATE_TTL_MS = 30 * 60 * 1000; // 坐标缓存/待输入状态的存活时
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 const MAX_SPOT_NAME_LEN = 60; // 过长的名字在按钮 label 上会被截断到认不出
 
+/** 记住每个用户最后一次有文字消息的语言(按钮回调时用) */
+const userLangMap = new Map();
+
+/** 含中文字符→zh,否则 en */
+function detectLang(text) {
+  return /[\u4e00-\u9fff]/.test(String(text ?? '')) ? 'zh' : 'en';
+}
+
+/** 根据语言构造按钮点击后的查询文本 */
+function buildQuery(spotLabel, timeKey, lang) {
+  if (lang === 'zh') {
+    if (timeKey === 'now') return `${spotLabel} 现在怎么样?`;
+    if (timeKey === 'today') return `${spotLabel} 今天怎么样?`;
+    return `${spotLabel} 明天怎么样?`;
+  }
+  if (timeKey === 'now') return `${spotLabel} how is it now?`;
+  if (timeKey === 'today') return `${spotLabel} how is it today?`;
+  return `${spotLabel} how is it tomorrow?`;
+}
+
 /**
  * 缓存坐标 { [token]: { lat, lng, chatId, userId, ts } } —— 按钮回调时取回坐标。
  * key 用随机 token 而非自增整数:进程重启后自增会从头发号,旧消息上的按钮会命中
@@ -165,10 +185,8 @@ export function startTelegram({ onMessage } = {}) {
         call('answerCallbackQuery', { callback_query_id: cb.id, text: '正在分析...' }).catch(() => {});
         call('sendChatAction', { chat_id: cbChatId, action: 'typing' }).catch(() => {});
 
-        let queryText;
-        if (action === 'now') queryText = `${cached.lat}, ${cached.lng} how is it now?`;
-        else if (action === 'today') queryText = `${cached.lat}, ${cached.lng} how is it today?`;
-        else queryText = `${cached.lat}, ${cached.lng} how is it tomorrow?`;
+        const lang = userLangMap.get(uid) || 'en';
+        const queryText = buildQuery(`${cached.lat}, ${cached.lng}`, action, lang);
 
         try {
           const result = await onMessage({ text: queryText, userId: username || uid, chatId: String(cbChatId), isAdmin });
@@ -210,7 +228,8 @@ export function startTelegram({ onMessage } = {}) {
         const username = cb.from?.username || '';
         const uid = String(cb.from?.id || '');
         const isAdmin = isAdminUser('tg', username, uid);
-        const queryText = `${spot.name} how is it today?`;
+        const lang = userLangMap.get(uid) || 'en';
+        const queryText = buildQuery(spot.name, 'today', lang);
         const result = await onMessage({ text: queryText, userId: username || uid, chatId: String(cbChatId), isAdmin });
         const r = typeof result === 'string' ? { text: result, files: [] } : result;
         for (const f of r.files || []) {
@@ -258,6 +277,8 @@ export function startTelegram({ onMessage } = {}) {
     const text = msg?.text?.trim();
     if (!text) return;
     console.log(`[tg] 收到来自 ${who} (id=${uid}) 的消息: ${text}`);
+    // 记住用户语言(按钮回调时用)
+    userLangMap.set(uid, detectLang(text));
 
     // 白名单:allowed 非空时,只放行用户名或数字 id 命中的人(省 OpenAI 额度)
     if (!isAllowedUser(config.telegram.allowed, username, uid)) {
