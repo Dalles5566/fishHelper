@@ -103,10 +103,11 @@ export function startDiscord({ onMessage } = {}) {
       for (let i = 0; i < spots.length; i += 5) {
         const row = new ActionRowBuilder();
         for (const s of spots.slice(i, i + 5)) {
+          const label = s.distance != null ? `${s.name} (${s.distance} mi)` : String(s.name).trim();
           row.addComponents(
             new ButtonBuilder()
               .setCustomId(`spot_${s.id}`)
-              .setLabel(String(s.name).trim().slice(0, 80))
+              .setLabel(label.slice(0, 80))
               .setStyle(ButtonStyle.Primary)
           );
         }

@@ -306,7 +306,7 @@ export function startTelegram({ onMessage } = {}) {
       if (Array.isArray(result.spots) && result.spots.length) {
         extra.reply_markup = JSON.stringify({
           inline_keyboard: result.spots.slice(0, 20).map((s) => [
-            { text: String(s.name), callback_data: `spot_${s.id}` },
+            { text: s.distance != null ? `${s.name} (${s.distance} mi)` : String(s.name), callback_data: `spot_${s.id}` },
           ]),
         });
       }
