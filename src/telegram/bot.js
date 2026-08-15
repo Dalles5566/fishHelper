@@ -20,9 +20,9 @@ setInterval(() => {
   for (const [k, v] of pendingAddSpot) if (v.ts < cutoff) pendingAddSpot.delete(k);
 }, 10 * 60 * 1000);
 
-/** 检测文本是否为裸坐标(如 "41.48, -71.33" 或 "41.48 -71.33") */
+/** 检测文本是否为裸坐标(如 "41.48, -71.33" / "(41.48, -71.33)" / "41.48 -71.33") */
 function parseRawCoords(text) {
-  const m = String(text).match(/^\s*(-?\d+\.?\d*)\s*[,\s]\s*(-?\d+\.?\d*)\s*$/);
+  const m = String(text).match(/^\s*\(?(-?\d+\.?\d*)\s*[,\s]\s*(-?\d+\.?\d*)\)?\s*$/);
   if (!m) return null;
   const lat = Number(m[1]);
   const lng = Number(m[2]);
