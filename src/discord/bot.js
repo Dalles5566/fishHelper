@@ -91,32 +91,43 @@ export function startDiscord({ onMessage } = {}) {
     }
 
     // 发回复(Discord 单条上限 2000 字符,超了截断)
-    const replyText = (result.text && String(result.text).trim()) || '(无内容)';
+    let replyText = (result.text && String(result.text).trim()) || '(无内容)';
 
-    // 如果有 spots 列表,渲染按钮(每行最多 5 个,Discord 上限)
+    // 如果有 spots 列表,渲染固定格式文字 + 按钮只显示序号+名字
     const components = [];
     if (Array.isArray(result.spots) && result.spots.length) {
       // Discord 要求 label 1-80 字符且 customId 必须有效,过滤掉没名字/没 id 的
       const spots = result.spots
         .filter((s) => s && s.id != null && String(s.name || '').trim())
         .slice(0, 25); // Discord 最多 5 行 × 5 按钮 = 25
+
+      // 按钮:序号 + 名字
       for (let i = 0; i < spots.length; i += 5) {
         const row = new ActionRowBuilder();
         for (const s of spots.slice(i, i + 5)) {
-          let label = String(s.name).trim();
-          const parts = [];
-          if (s.distance != null) parts.push(`${s.distance} mi`);
-          if (s.drivingDuration) parts.push(s.drivingDuration);
-          if (parts.length) label += ` (${parts.join(' · ')})`;
+          const idx = result.spots.indexOf(s) + 1;
           row.addComponents(
             new ButtonBuilder()
               .setCustomId(`spot_${s.id}`)
-              .setLabel(label.slice(0, 80))
+              .setLabel(`${idx}. ${String(s.name).trim()}`.slice(0, 80))
               .setStyle(ButtonStyle.Primary)
           );
         }
         components.push(row);
       }
+
+      // 聊天正文:固定格式
+      const lines = result.spots.map((s, i) => {
+        const parts = [];
+        parts.push(`${i + 1}. ${s.name}${s.state ? ` (${s.state})` : ''}`);
+        if (s.note) parts.push(`备注: ${s.note}`);
+        const distParts = [];
+        if (s.distance != null) distParts.push(`${s.distance} mi`);
+        if (s.drivingDuration) distParts.push(s.drivingDuration);
+        if (distParts.length) parts.push(distParts.join(' | '));
+        return parts.join('\n');
+      });
+      replyText = lines.join('\n\n');
     }
 
     try {
