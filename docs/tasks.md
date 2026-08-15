@@ -329,6 +329,44 @@
 
 ---
 
+## ✅ 任务 18:坐标交互菜单 + state/distance 字段 + 导航按钮 + 代码审查修复(已上线)
+详见 design.md §14 / §15 / §16。
+
+**新功能**
+- [x] Telegram: Location 消息 + 裸坐标 → 弹操作菜单按钮(查现在/今天/明天/添加钓点)
+- [x] Discord: 裸坐标 → 同样的操作菜单按钮
+- [x] 添加钓点两步会话:点按钮 → 输入"名字, 备注" → 自动补 state + distance → 存库
+- [x] coordinates 表新增 `state`(州缩写) + `distance`(开车英里) 两列
+- [x] `addCoordinate` tool: 自动反查 state(Nominatim) + 自动算 distance(Google Distance Matrix / OSRM 降级)
+- [x] `getCoordinateByName` 列钓点时: 实时查 Google Distance Matrix 开车时间(含路况,5 分钟 TTL 缓存)
+- [x] 钓点列表固定格式渲染(代码,非 LLM):序号 / 名字(州) / 备注 / 距离 | 开车时间
+- [x] 按钮只显示"序号. 名字",按距离从近到远排序
+- [x] 所有分析结果带"📍 导航到这里"URL 按钮(Google Maps Directions,点击直接开导航)
+- [x] 附件文件名格式:`C-钓点名-日期.txt` / `T-钓点名-日期.txt` / `P-钓点名-日期.txt`
+
+**代码审查修复(19 项)**
+- [x] schema.sql 加幂等 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`(已有库升级不崩)
+- [x] coordCache 改 randomUUID token(防重启撞号) + 校验 userId(群里别人不能点你的菜单)
+- [x] pendingAddSpot 状态串位修复:裸坐标检查移到 pending 之前;Location/裸坐标分支清 pending
+- [x] pending 3 分钟超时自动取消(防把正常问题当钓点名存)
+- [x] 四个外部 fetch 加 AbortSignal.timeout(15s);OSRM 换 https
+- [x] Google API 应用层错误(REQUEST_DENIED / OVER_QUERY_LIMIT)打日志
+- [x] parseRawCoords 要求至少一侧带小数点(防 "1 2" 误判)
+- [x] stateToAbbr 归一化统一套在模型传入和自动反查两条路径
+- [x] 新建 `src/shared/spotFormat.js`:formatSpotList / buildSpotListMessage / isAdminUser / isAllowedUser / parseRawCoords
+- [x] 新建 `src/shared/httpFetch.js`:fetchWithTimeout
+- [x] 三个传输层统一用 shared 模块(管理员判断从 6 处降到 1 处)
+- [x] Telegram 添加钓点改走 executeTool(权限校验单一真源)
+- [x] sweepTimer 加 unref() + stop 时 clearInterval(进程可干净退出)
+- [x] Location 白名单拒绝给反馈(不再静默 return)
+- [x] 钓点名长度上限 60(防超长截断认不出)
+- [x] buildSpotListMessage 保留模型短引导语(多候选澄清场景)
+- [x] Discord indexOf 改循环下标(O(n²) → O(n))
+
+**状态:已上线**
+
+---
+
 ## 决策记录
 - 传输:**企业微信智能机器人 + WebSocket 长连接**(`@wecom/aibot-node-sdk`)
 - 凭据:**botId + secret**(智能机器人),非自建应用 agentId/corpId

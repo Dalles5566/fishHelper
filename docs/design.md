@@ -139,8 +139,11 @@ fishHelper/
     │       ├── registerTools.js        # 工具注册表 (schema + execute 映射)
     │       ├── getCurrentWeather.js    # 调 getCurrentConditions(lat,lng,{name,note})
     │       ├── getPredictWeather.js    # 调 getPredictConditions(lat,lng,{name,note,date})
-    │       ├── getCoordinateByName.js
-    │       └── addCoordinate.js
+    │       ├── getCoordinateByName.js  # 列钓点时实时查 Google Distance Matrix
+    │       └── addCoordinate.js        # 自动补 state(Nominatim) + distance(Google/OSRM)
+    ├── shared/
+    │   ├── spotFormat.js     # 传输层共享:formatSpotList / buildSpotListMessage / isAdminUser / parseRawCoords
+    │   └── httpFetch.js      # fetchWithTimeout(15s)
     └── services/
         ├── spotConditions.js            # getCurrentConditions / getPredictConditions（挑选+重组）
         ├── stations.js                  # 就近找站的通用工具(haversine + 站点列表缓存)
@@ -344,10 +347,18 @@ coordinates (
   name        TEXT NOT NULL,          -- 钓点名,唯一(忽略大小写)
   latitude    DOUBLE PRECISION NOT NULL,
   longitude   DOUBLE PRECISION NOT NULL,
-  note        TEXT,
+  note        TEXT,                   -- 备注(如"军校"、"石头堤坝尽头")
+  state       TEXT,                   -- 所在州缩写(如 'MA'/'RI'),添加时自动反查(Nominatim)
+  distance    DOUBLE PRECISION,       -- 从家(HOME_COORDINATES)开车的里程(英里),添加时自动算(Google/OSRM)
   created_at  TIMESTAMPTZ DEFAULT now()
 )
 ```
+
+> `state` 和 `distance` 在 `addCoordinate` tool 执行时自动填充(未显式传入时):
+> - state:Nominatim 反向地理编码 → 州全名 → stateToAbbr 归一化为 2 字母
+> - distance:Google Distance Matrix API(优先) → OSRM 公共实例(降级)
+>
+> `HOME_COORDINATES` 在 `.env` 里配置;种子数据里的 distance 与该值绑定,换家坐标后需重算。
 
 ## 6. 典型对话流程示例
 
@@ -502,10 +513,50 @@ runAgent(userText)
 ## 13. 交互式钓点选择按钮(Discord + Telegram)
 
 当 `getCoordinateByName` 返回全部钓点列表时,`runToolLoop` 透传 `spots` 数组:
-- **Discord**:渲染 `ActionRow` + `ButtonBuilder`(每行最多 5 个,每个按钮 = 钓点名)
-- **Telegram**:渲染 `InlineKeyboardMarkup`(每行 1 个按钮 = 钓点名)
+- **Discord**:渲染 `ActionRow` + `ButtonBuilder`(每行最多 5 个,按钮 = 序号+钓点名)
+- **Telegram**:渲染 `InlineKeyboardMarkup`(每行 1 个按钮 = 序号+钓点名)
 - **企业微信**:不支持交互卡片,降级为纯文本列表
+
+**聊天正文由代码固定渲染**(不交给 LLM 措辞),格式:
+```
+1. 钓点名 (州)
+备注: xxx
+距离 mi | 实时开车时间
+```
+实时开车时间通过 Google Distance Matrix API(`departure_time=now`,含路况)查询,5 分钟 TTL 缓存。
 
 点击按钮 → 触发 `"spotName 今天怎么样?"` 走 `onMessage` → 走 analyze 快捷管道 → 回复分析报告。
 按钮本身不消耗额外 token(纯传输层渲染);点击后的分析跟手动输入完全一致。
-```
+
+## 14. 坐标/Location 交互菜单(Discord + Telegram)
+
+收到**裸坐标文本**(如 `41.48, -71.33` / `(41.48, -71.33)`)或 **Telegram Location 消息**时,
+不直接走 agent,而是弹出操作菜单让用户选择:
+- 📍 添加钓点(仅管理员可见)
+- 🔍 查询现在
+- 📊 查询今天
+- 📅 查询明天
+
+**实现细节:**
+- 坐标缓存用 `randomUUID` 短 token 作 key(防进程重启后 id 复用撞号)
+- 校验 `cached.userId`:只有发坐标的本人能操作按钮
+- "添加钓点"走两步会话状态(`pendingAddSpot`):3 分钟超时自动取消
+- 裸坐标检测(`parseRawCoords`)要求至少一侧带小数点(防 "1 2" 误判)
+- 传输层走 `executeTool` 而非直连 tool(权限校验单一真源)
+- 添加时自动补 state(Nominatim) + distance(Google Distance Matrix / OSRM 降级)
+
+## 15. 导航按钮(Discord + Telegram)
+
+所有分析结果(Current / Today / Predict)回复时带一个 URL 按钮:
+- **Telegram**:"📍 导航到这里"(InlineKeyboard URL 按钮)
+- **Discord**:"📍 导航到这里"(ButtonStyle.Link)
+
+链接格式:`https://www.google.com/maps/dir/?api=1&destination={lat},{lng}`
+点击后直接打开 Google Maps 导航(从用户当前位置到钓点)。
+
+## 16. 共享模块(`src/shared/`)
+
+消除三个传输层的重复代码:
+- `spotFormat.js`:formatSpotList / buildSpotListMessage / isAdminUser / isAllowedUser / parseRawCoords
+- `httpFetch.js`:fetchWithTimeout(15s AbortSignal,与 services/dataSource 约定一致)
+

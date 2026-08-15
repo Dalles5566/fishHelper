@@ -38,7 +38,17 @@ Just type naturally. Examples:
 
 ## Quick spot selection (Discord + Telegram)
 
-When you ask "我的钓点" or "list spots", the bot replies with **clickable buttons** — one for each saved spot. Tap any button and you instantly get today's fishing analysis for that spot. No need to type the name out.
+When you ask "我的钓点" or "list spots", the bot replies with a **formatted list** showing each spot's name, state, note, driving distance, and real-time driving duration (via Google Maps). Below the list are **clickable buttons** (numbered, one per spot). Tap any button and you instantly get today's fishing analysis for that spot.
+
+## Coordinate / Location input (Discord + Telegram)
+
+Send a **raw coordinate** (e.g. `41.48, -71.33` or `(41.48, -71.33)`) or a **Telegram Location pin**, and the bot presents action buttons:
+- 📍 Add as new spot (admin only)
+- 🔍 Analyze now
+- 📊 Analyze today
+- 📅 Analyze tomorrow
+
+This skips the need to save a spot first — just drop a pin and choose what you want.
 
 ## What's in the analysis?
 
@@ -65,7 +75,28 @@ If you're an admin, you can save new fishing spots:
 
 > "Add a spot called Church Woods Hole, coordinates 41.515, -70.655, note: first fishing spot"
 
+Or send a **coordinate** (or Telegram Location pin) — the bot will ask what you want to do:
+- 📍 Add as a new spot (admin only)
+- 🔍 Analyze now (current conditions)
+- 📊 Analyze today
+- 📅 Analyze tomorrow
+
+When adding a spot, you'll be prompted for a name and optional note (format: `Name, Note`). The bot automatically detects which US state it's in and calculates driving distance from home.
+
 Non-admin users can query and analyze spots, but cannot add or modify them.
+
+## Navigation
+
+Every analysis result (current, today, or future) includes a **"📍 导航到这里"** button that opens Google Maps directions directly — one tap to start navigation to the fishing spot.
+
+## What's in each spot?
+
+Every saved spot stores:
+- **Name** (unique, case-insensitive)
+- **Coordinates** (lat/lng)
+- **Note** (optional, e.g. "石头堤坝尽头")
+- **State** (US state abbreviation, auto-detected)
+- **Distance** (driving distance from home in miles, auto-calculated via Google Distance Matrix)
 
 ## Data sources
 
@@ -76,6 +107,7 @@ All data comes from free US government APIs (no paid subscriptions):
 - USGS (river data)
 - NOAA bathymetry (water depth)
 - suncalc (sunrise/sunset, moon phase)
+- Google Distance Matrix API (real-time driving duration + distance when adding spots / listing spots)
 
 ## Technical details
 
