@@ -302,20 +302,29 @@ export function startTelegram({ onMessage } = {}) {
     }
     try {
       const extra = {};
-      // 如果有 spots 列表,渲染 inline keyboard(每行一个按钮)
+      // 如果有 spots 列表,用代码渲染固定格式 + 按钮只显示序号+名字
       if (Array.isArray(result.spots) && result.spots.length) {
+        // 按钮:序号 + 名字
         extra.reply_markup = JSON.stringify({
-          inline_keyboard: result.spots.slice(0, 20).map((s) => {
-            let label = String(s.name);
-            const parts = [];
-            if (s.distance != null) parts.push(`${s.distance} mi`);
-            if (s.drivingDuration) parts.push(s.drivingDuration);
-            if (parts.length) label += ` (${parts.join(' · ')})`;
-            return [{ text: label, callback_data: `spot_${s.id}` }];
-          }),
+          inline_keyboard: result.spots.slice(0, 20).map((s, i) => [
+            { text: `${i + 1}. ${s.name}`, callback_data: `spot_${s.id}` },
+          ]),
         });
+        // 聊天正文:固定格式
+        const lines = result.spots.map((s, i) => {
+          const parts = [];
+          parts.push(`${i + 1}. ${s.name}${s.state ? ` (${s.state})` : ''}`);
+          if (s.note) parts.push(`备注: ${s.note}`);
+          const distParts = [];
+          if (s.distance != null) distParts.push(`${s.distance} mi`);
+          if (s.drivingDuration) distParts.push(s.drivingDuration);
+          if (distParts.length) parts.push(distParts.join(' | '));
+          return parts.join('\n');
+        });
+        await sendLongMessage(chatId, lines.join('\n\n'), extra);
+      } else {
+        await sendLongMessage(chatId, (result.text && String(result.text).trim()) || '(无内容)', extra);
       }
-      await sendLongMessage(chatId, (result.text && String(result.text).trim()) || '(无内容)', extra);
     } catch (err) {
       console.error('[tg] 文本发送失败:', err?.message || err);
     }
