@@ -332,11 +332,22 @@ function safeName(s) {
   return String(s || 'spot').replace(/[^\w\u4e00-\u9fa5-]+/g, '_').slice(0, 40);
 }
 
-/** 由 spotConditions 生成附件文件名:钓点名(或坐标)_日期.txt */
+/** 由 spotConditions 生成附件文件名: 前缀-钓点名-日期.txt
+ *  C = current(现在), T = today(今天), P = predict(未来某天) */
 function spotFileName(c) {
   const label = c?.name || `${c?.latitude},${c?.longitude}`;
-  const stamp = c?.date || (c?.currentTime ? c.currentTime.slice(0, 10) : '');
-  return `${safeName(label)}_${stamp}.txt`;
+  const today = etNow().dateStr;
+  let prefix, stamp;
+  if (c?.date) {
+    // prediction 模式:今天的 date 就是 T,未来的就是 P
+    prefix = c.date === today ? 'T' : 'P';
+    stamp = c.date;
+  } else {
+    // current 模式
+    prefix = 'C';
+    stamp = c?.currentTime ? c.currentTime.slice(0, 10) : today;
+  }
+  return `${prefix}-${safeName(label)}-${stamp}.txt`;
 }
 
 /** text = 聊天正文(摘要);files = 附件;spots = 可选钓点列表(供传输层渲染按钮) */
