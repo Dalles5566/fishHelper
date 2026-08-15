@@ -359,7 +359,7 @@ function spotFileName(c) {
 
 /** text = 聊天正文(摘要);files = 附件;spots = 可选钓点列表;coordinates = 坐标(供地图按钮) */
 function buildOutput(finalText, files, lang = 'zh', { spots = null, coordinates = null } = {}) {
-  const out = { text: finalizeText(finalText, lang), files };
+  const out = { text: finalizeText(finalText, lang), files, lang };
   if (spots) out.spots = spots;
   if (coordinates) out.coordinates = coordinates; // { latitude, longitude }
   return out;
