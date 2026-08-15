@@ -176,7 +176,13 @@ export function startTelegram({ onMessage } = {}) {
           for (const f of r.files || []) {
             await sendDocument(cbChatId, f.filename, f.content).catch(() => {});
           }
-          await sendLongMessage(cbChatId, (r.text && String(r.text).trim()) || '(无内容)');
+          const extra = {};
+          if (r.coordinates) {
+            extra.reply_markup = JSON.stringify({
+              inline_keyboard: [[{ text: '📍 在地图中查看', url: `https://www.google.com/maps?q=${r.coordinates.latitude},${r.coordinates.longitude}` }]],
+            });
+          }
+          await sendLongMessage(cbChatId, (r.text && String(r.text).trim()) || '(无内容)', extra);
         } catch (err) {
           console.error('[tg] 坐标菜单回调异常:', err?.message || err);
           await sendMessage(cbChatId, '抱歉,处理时出错了。').catch(() => {});
@@ -210,7 +216,13 @@ export function startTelegram({ onMessage } = {}) {
         for (const f of r.files || []) {
           await sendDocument(cbChatId, f.filename, f.content).catch(() => {});
         }
-        await sendLongMessage(cbChatId, (r.text && String(r.text).trim()) || '(无内容)');
+        const extra = {};
+        if (r.coordinates) {
+          extra.reply_markup = JSON.stringify({
+            inline_keyboard: [[{ text: '📍 在地图中查看', url: `https://www.google.com/maps?q=${r.coordinates.latitude},${r.coordinates.longitude}` }]],
+          });
+        }
+        await sendLongMessage(cbChatId, (r.text && String(r.text).trim()) || '(无内容)', extra);
       } catch (err) {
         console.error('[tg] 按钮回调处理异常:', err?.message || err);
         await sendMessage(cbChatId, '抱歉,处理时出错了。').catch(() => {});
