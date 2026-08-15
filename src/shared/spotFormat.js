@@ -32,10 +32,9 @@ export function formatSpotList(spots, lang = 'en') {
  * @param {Array} spots
  * @returns {string}
  */
-export function buildSpotListMessage(modelText, spots) {
-  const list = formatSpotList(spots);
+export function buildSpotListMessage(modelText, spots, lang = 'en') {
+  const list = formatSpotList(spots, lang);
   const lead = String(modelText ?? '').trim();
-  // 模型文本自己就是一份列表(含编号/换行很多)时不重复展示,只保留短引导语
   const isShortLead = lead && lead.length <= 200 && lead.split('\n').length <= 3;
   return isShortLead ? `${lead}\n\n${list}` : list;
 }
