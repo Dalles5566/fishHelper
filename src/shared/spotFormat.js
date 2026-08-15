@@ -17,7 +17,7 @@ export function formatSpotList(spots) {
   return spots
     .map((s, i) => {
       const lines = [`${i + 1}. ${s.name}${s.state ? ` (${s.state})` : ''}`];
-      if (s.note) lines.push(`备注: ${s.note}`);
+      if (s.note) lines.push(`Note: ${s.note}`);
       const dist = [];
       if (s.distance != null) dist.push(`${s.distance} mi`);
       if (s.drivingDuration) dist.push(s.drivingDuration);
