@@ -6,9 +6,25 @@
 import { addCoordinate } from '../../db/coordinates.js';
 import { config } from '../../config.js';
 
-/** 用 OSRM 免费路线服务算开车距离(英里) */
+/** 用 Google Distance Matrix API 算开车距离(英里) */
 async function getDrivingDistance(lat, lng) {
   const home = config.home;
+  const apiKey = config.google.mapsApiKey;
+  // 有 Google key 优先用;没有则降级 OSRM
+  if (home && apiKey) {
+    try {
+      const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${home.lat},${home.lng}&destinations=${lat},${lng}&key=${apiKey}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const el = data.rows?.[0]?.elements?.[0];
+      if (el?.status === 'OK') {
+        return Math.round((el.distance.value / 1609.34) * 10) / 10;
+      }
+    } catch (err) {
+      console.error('[addCoordinate] Google Distance Matrix 失败,降级 OSRM:', err?.message || err);
+    }
+  }
+  // 降级:OSRM(免费,无需 key)
   if (!home) return null;
   try {
     const url = `http://router.project-osrm.org/route/v1/driving/${home.lng},${home.lat};${lng},${lat}?overview=false`;

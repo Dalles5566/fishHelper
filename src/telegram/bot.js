@@ -305,9 +305,14 @@ export function startTelegram({ onMessage } = {}) {
       // 如果有 spots 列表,渲染 inline keyboard(每行一个按钮)
       if (Array.isArray(result.spots) && result.spots.length) {
         extra.reply_markup = JSON.stringify({
-          inline_keyboard: result.spots.slice(0, 20).map((s) => [
-            { text: s.distance != null ? `${s.name} (${s.distance} mi)` : String(s.name), callback_data: `spot_${s.id}` },
-          ]),
+          inline_keyboard: result.spots.slice(0, 20).map((s) => {
+            let label = String(s.name);
+            const parts = [];
+            if (s.distance != null) parts.push(`${s.distance} mi`);
+            if (s.drivingDuration) parts.push(s.drivingDuration);
+            if (parts.length) label += ` (${parts.join(' · ')})`;
+            return [{ text: label, callback_data: `spot_${s.id}` }];
+          }),
         });
       }
       await sendLongMessage(chatId, (result.text && String(result.text).trim()) || '(无内容)', extra);

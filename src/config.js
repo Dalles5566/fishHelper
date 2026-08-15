@@ -108,6 +108,11 @@ export const config = {
     return null;
   })(),
 
+  // Google Maps API(用于实时开车时间)
+  google: {
+    mapsApiKey: process.env.GOOGLE_MAPS_API_KEY || '',
+  },
+
   rootDir,
 };
 
