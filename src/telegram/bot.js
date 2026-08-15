@@ -4,7 +4,48 @@
 // 收到文本 → onMessage 返回 { text, files } → 先发 .txt 附件(sendDocument)再发文字。
 // ============================================================================
 import { config } from '../config.js';
-import { findCoordinateById } from '../db/coordinates.js';
+import { findCoordinateById, addCoordinate } from '../db/coordinates.js';
+
+// ---- 坐标交互菜单:内存缓存 + 会话状态 ----
+let coordSeq = 0;
+/** 缓存坐标 { [shortId]: { lat, lng, chatId, userId, ts } } —— 用于按钮回调时取回坐标 */
+const coordCache = new Map();
+/** 等待用户输入钓点名 { [chatId_userId]: { lat, lng, ts } } */
+const pendingAddSpot = new Map();
+
+// 每 10 分钟清理超过 30 分钟的缓存条目(防内存泄漏)
+setInterval(() => {
+  const cutoff = Date.now() - 30 * 60 * 1000;
+  for (const [k, v] of coordCache) if (v.ts < cutoff) coordCache.delete(k);
+  for (const [k, v] of pendingAddSpot) if (v.ts < cutoff) pendingAddSpot.delete(k);
+}, 10 * 60 * 1000);
+
+/** 检测文本是否为裸坐标(如 "41.48, -71.33" 或 "41.48 -71.33") */
+function parseRawCoords(text) {
+  const m = String(text).match(/^\s*(-?\d+\.?\d*)\s*[,\s]\s*(-?\d+\.?\d*)\s*$/);
+  if (!m) return null;
+  const lat = Number(m[1]);
+  const lng = Number(m[2]);
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return { lat, lng };
+}
+
+/** 缓存坐标并生成操作菜单按钮 */
+function buildCoordMenu(lat, lng, chatId, userId, isAdmin) {
+  const id = ++coordSeq;
+  coordCache.set(id, { lat, lng, chatId, userId, ts: Date.now() });
+  const buttons = [];
+  if (isAdmin) buttons.push([{ text: '📍 添加钓点', callback_data: `coord_${id}_add` }]);
+  buttons.push(
+    [{ text: '🔍 查询现在', callback_data: `coord_${id}_now` }],
+    [{ text: '📊 查询今天', callback_data: `coord_${id}_today` }],
+    [{ text: '📅 查询明天', callback_data: `coord_${id}_tomorrow` }],
+  );
+  return {
+    text: `收到坐标 (${lat.toFixed(5)}, ${lng.toFixed(5)})\n请选择操作:`,
+    reply_markup: JSON.stringify({ inline_keyboard: buttons }),
+  };
+}
 
 const api = (token, method) => `https://api.telegram.org/bot${token}/${method}`;
 
@@ -62,12 +103,69 @@ export function startTelegram({ onMessage } = {}) {
   };
 
   async function handle(update) {
-    // ---- 按钮回调:钓点选择 → 触发今天 prediction 分析 ----
+    // ---- 按钮回调 ----
     if (update.callback_query) {
       const cb = update.callback_query;
       const data = cb.data || '';
       const cbChatId = cb.message?.chat?.id;
-      if (!data.startsWith('spot_') || !cbChatId) {
+      if (!cbChatId) {
+        call('answerCallbackQuery', { callback_query_id: cb.id }).catch(() => {});
+        return;
+      }
+
+      // ---- 坐标菜单回调:coord_<id>_<action> ----
+      if (data.startsWith('coord_')) {
+        const parts = data.split('_'); // ['coord', id, action]
+        const cacheId = Number(parts[1]);
+        const action = parts[2]; // 'add' | 'now' | 'today' | 'tomorrow'
+        const cached = coordCache.get(cacheId);
+        if (!cached) {
+          call('answerCallbackQuery', { callback_query_id: cb.id, text: '坐标已过期,请重新发送' }).catch(() => {});
+          return;
+        }
+        const username = cb.from?.username || '';
+        const uid = String(cb.from?.id || '');
+        const isAdmin = config.admins.includes(`tg_${username.toLowerCase()}`) || config.admins.includes(`tg_${uid}`);
+
+        if (action === 'add') {
+          // 添加钓点:需要管理员权限
+          if (!isAdmin) {
+            call('answerCallbackQuery', { callback_query_id: cb.id, text: '只有管理员能添加钓点' }).catch(() => {});
+            return;
+          }
+          call('answerCallbackQuery', { callback_query_id: cb.id }).catch(() => {});
+          // 存入 pending 状态,等用户下一条消息输入"名字,备注"
+          const key = `${cbChatId}_${uid}`;
+          pendingAddSpot.set(key, { lat: cached.lat, lng: cached.lng, ts: Date.now() });
+          await sendMessage(cbChatId, `请输入钓点名称和备注,格式:\n名字, 备注\n\n例如: Fort Adams, 石头堤坝尽头\n\n坐标: (${cached.lat.toFixed(5)}, ${cached.lng.toFixed(5)})`);
+          return;
+        }
+
+        // 查询操作:now / today / tomorrow
+        call('answerCallbackQuery', { callback_query_id: cb.id, text: '正在分析...' }).catch(() => {});
+        call('sendChatAction', { chat_id: cbChatId, action: 'typing' }).catch(() => {});
+
+        let queryText;
+        if (action === 'now') queryText = `${cached.lat}, ${cached.lng} 现在怎么样?`;
+        else if (action === 'today') queryText = `${cached.lat}, ${cached.lng} 今天怎么样?`;
+        else queryText = `${cached.lat}, ${cached.lng} 明天怎么样?`;
+
+        try {
+          const result = await onMessage({ text: queryText, userId: username || uid, chatId: String(cbChatId), isAdmin });
+          const r = typeof result === 'string' ? { text: result, files: [] } : result;
+          for (const f of r.files || []) {
+            await sendDocument(cbChatId, f.filename, f.content).catch(() => {});
+          }
+          await sendLongMessage(cbChatId, (r.text && String(r.text).trim()) || '(无内容)');
+        } catch (err) {
+          console.error('[tg] 坐标菜单回调异常:', err?.message || err);
+          await sendMessage(cbChatId, '抱歉,处理时出错了。').catch(() => {});
+        }
+        return;
+      }
+
+      // ---- 钓点选择回调:spot_<id> → 触发今天 prediction 分析 ----
+      if (!data.startsWith('spot_')) {
         call('answerCallbackQuery', { callback_query_id: cb.id }).catch(() => {});
         return;
       }
@@ -100,14 +198,30 @@ export function startTelegram({ onMessage } = {}) {
       return;
     }
 
-    // ---- 普通文本消息 ----
+    // ---- 普通消息(文本 / Location) ----
     const msg = update.message || update.edited_message;
-    const text = msg?.text?.trim();
     const chatId = msg?.chat?.id;
-    if (!text || chatId == null) return;
-    const username = msg.from?.username || '';
-    const uid = String(msg.from?.id || '');
+    if (chatId == null) return;
+    const username = msg?.from?.username || '';
+    const uid = String(msg?.from?.id || '');
     const who = username || uid;
+
+    // ---- Location 消息:弹出操作菜单 ----
+    if (msg?.location) {
+      const lat = msg.location.latitude;
+      const lng = msg.location.longitude;
+      console.log(`[tg] 收到来自 ${who} 的位置: ${lat}, ${lng}`);
+      // 白名单检查
+      const allowed = config.telegram.allowed;
+      if (allowed.length && !allowed.includes(username.toLowerCase()) && !allowed.includes(uid)) return;
+      const isAdmin = config.admins.includes(`tg_${username.toLowerCase()}`) || config.admins.includes(`tg_${uid}`);
+      const menu = buildCoordMenu(lat, lng, chatId, uid, isAdmin);
+      await sendMessage(chatId, menu.text, { reply_markup: menu.reply_markup });
+      return;
+    }
+
+    const text = msg?.text?.trim();
+    if (!text) return;
     console.log(`[tg] 收到来自 ${who} (id=${uid}) 的消息: ${text}`);
 
     // 白名单:allowed 非空时,只放行用户名或数字 id 命中的人(省 OpenAI 额度)
@@ -121,12 +235,51 @@ export function startTelegram({ onMessage } = {}) {
       return;
     }
 
+    const isAdmin = config.admins.includes(`tg_${username.toLowerCase()}`) || config.admins.includes(`tg_${uid}`);
+
+    // ---- 检查 pending 添加钓点状态:用户点了"添加钓点"后,下一条消息作为"名字,备注" ----
+    const pendingKey = `${chatId}_${uid}`;
+    const pending = pendingAddSpot.get(pendingKey);
+    if (pending) {
+      pendingAddSpot.delete(pendingKey);
+      // 解析"名字, 备注"格式
+      const commaIdx = text.indexOf(',');
+      let spotName, spotNote;
+      if (commaIdx > 0) {
+        spotName = text.slice(0, commaIdx).trim();
+        spotNote = text.slice(commaIdx + 1).trim() || null;
+      } else {
+        spotName = text.trim();
+        spotNote = null;
+      }
+      if (!spotName) {
+        await sendMessage(chatId, '名字不能为空,请重新发送位置或坐标再试。');
+        return;
+      }
+      try {
+        const saved = await addCoordinate({ name: spotName, latitude: pending.lat, longitude: pending.lng, note: spotNote });
+        await sendMessage(chatId, `✅ 已保存钓点: ${saved.name}\n坐标: (${saved.latitude}, ${saved.longitude})${saved.note ? `\n备注: ${saved.note}` : ''}`);
+      } catch (err) {
+        console.error('[tg] 添加钓点失败:', err?.message || err);
+        await sendMessage(chatId, `添加钓点失败: ${err?.message || '未知错误'}`);
+      }
+      return;
+    }
+
+    // ---- 裸坐标拦截:弹操作菜单而不是直接走 agent ----
+    const rawCoords = parseRawCoords(text);
+    if (rawCoords) {
+      console.log(`[tg] 裸坐标识别: ${rawCoords.lat}, ${rawCoords.lng}`);
+      const menu = buildCoordMenu(rawCoords.lat, rawCoords.lng, chatId, uid, isAdmin);
+      await sendMessage(chatId, menu.text, { reply_markup: menu.reply_markup });
+      return;
+    }
+
     // 输入中... 提示(失败无所谓)
     call('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {});
 
     let result;
     try {
-      const isAdmin = config.admins.includes(`tg_${username.toLowerCase()}`) || config.admins.includes(`tg_${uid}`);
       result = await onMessage({ text, userId: who, chatId: String(chatId), isAdmin });
     } catch (err) {
       console.error('[tg] onMessage 处理异常:', err?.message || err);
