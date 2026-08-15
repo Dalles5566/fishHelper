@@ -200,9 +200,9 @@ export function startDiscord({ onMessage } = {}) {
       const { latitude, longitude } = result.coordinates;
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setLabel('📍 在地图中查看')
+          .setLabel('📍 导航到这里')
           .setStyle(ButtonStyle.Link)
-          .setURL(`https://www.google.com/maps?q=${latitude},${longitude}`)
+          .setURL(`https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}`)
       );
       components.push(row);
     }
@@ -274,8 +274,8 @@ export function startDiscord({ onMessage } = {}) {
         const mapComponents = [];
         if (r.coordinates) {
           mapComponents.push(new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setLabel('📍 在地图中查看').setStyle(ButtonStyle.Link)
-              .setURL(`https://www.google.com/maps?q=${r.coordinates.latitude},${r.coordinates.longitude}`)
+            new ButtonBuilder().setLabel('📍 导航到这里').setStyle(ButtonStyle.Link)
+              .setURL(`https://www.google.com/maps/dir/?api=1&destination=${r.coordinates.latitude},${r.coordinates.longitude}`)
           ));
         }
         await interaction.editReply({ content: chunks[0], files: files.length ? files : undefined, components: mapComponents.length ? mapComponents : undefined });
@@ -317,8 +317,8 @@ export function startDiscord({ onMessage } = {}) {
       const mapComponents = [];
       if (r.coordinates) {
         mapComponents.push(new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setLabel('📍 在地图中查看').setStyle(ButtonStyle.Link)
-            .setURL(`https://www.google.com/maps?q=${r.coordinates.latitude},${r.coordinates.longitude}`)
+          new ButtonBuilder().setLabel('📍 导航到这里').setStyle(ButtonStyle.Link)
+            .setURL(`https://www.google.com/maps/dir/?api=1&destination=${r.coordinates.latitude},${r.coordinates.longitude}`)
         ));
       }
       const chunks = splitText((r.text || '').trim() || '(无内容)', 2000);

@@ -179,7 +179,7 @@ export function startTelegram({ onMessage } = {}) {
           const extra = {};
           if (r.coordinates) {
             extra.reply_markup = JSON.stringify({
-              inline_keyboard: [[{ text: '📍 在地图中查看', url: `https://www.google.com/maps?q=${r.coordinates.latitude},${r.coordinates.longitude}` }]],
+              inline_keyboard: [[{ text: '📍 导航到这里', url: `https://www.google.com/maps/dir/?api=1&destination=${r.coordinates.latitude},${r.coordinates.longitude}` }]],
             });
           }
           await sendLongMessage(cbChatId, (r.text && String(r.text).trim()) || '(无内容)', extra);
@@ -219,7 +219,7 @@ export function startTelegram({ onMessage } = {}) {
         const extra = {};
         if (r.coordinates) {
           extra.reply_markup = JSON.stringify({
-            inline_keyboard: [[{ text: '📍 在地图中查看', url: `https://www.google.com/maps?q=${r.coordinates.latitude},${r.coordinates.longitude}` }]],
+            inline_keyboard: [[{ text: '📍 导航到这里', url: `https://www.google.com/maps/dir/?api=1&destination=${r.coordinates.latitude},${r.coordinates.longitude}` }]],
           });
         }
         await sendLongMessage(cbChatId, (r.text && String(r.text).trim()) || '(无内容)', extra);
@@ -358,7 +358,7 @@ export function startTelegram({ onMessage } = {}) {
         if (result.coordinates) {
           const { latitude, longitude } = result.coordinates;
           extra.reply_markup = JSON.stringify({
-            inline_keyboard: [[{ text: '📍 在地图中查看', url: `https://www.google.com/maps?q=${latitude},${longitude}` }]],
+            inline_keyboard: [[{ text: '📍 导航到这里', url: `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}` }]],
           });
         }
         await sendLongMessage(chatId, (result.text && String(result.text).trim()) || '(无内容)', extra);
