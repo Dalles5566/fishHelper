@@ -195,6 +195,18 @@ export function startDiscord({ onMessage } = {}) {
       replyText = buildSpotListMessage(result.text, spots);
     }
 
+    // 有坐标(非钓点列表):加地图链接按钮
+    if (!components.length && result.coordinates) {
+      const { latitude, longitude } = result.coordinates;
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setLabel('📍 在地图中查看')
+          .setStyle(ButtonStyle.Link)
+          .setURL(`https://www.google.com/maps?q=${latitude},${longitude}`)
+      );
+      components.push(row);
+    }
+
     try {
       // 如果超 2000 字符,分段发送
       const chunks = splitText(replyText, 2000);
@@ -259,7 +271,14 @@ export function startDiscord({ onMessage } = {}) {
         const r = typeof result === 'string' ? { text: result, files: [] } : result;
         const files = (r.files || []).map((f) => new AttachmentBuilder(Buffer.from(f.content, 'utf8'), { name: f.filename }));
         const chunks = splitText((r.text || '').trim() || '(无内容)', 2000);
-        await interaction.editReply({ content: chunks[0], files: files.length ? files : undefined });
+        const mapComponents = [];
+        if (r.coordinates) {
+          mapComponents.push(new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setLabel('📍 在地图中查看').setStyle(ButtonStyle.Link)
+              .setURL(`https://www.google.com/maps?q=${r.coordinates.latitude},${r.coordinates.longitude}`)
+          ));
+        }
+        await interaction.editReply({ content: chunks[0], files: files.length ? files : undefined, components: mapComponents.length ? mapComponents : undefined });
         for (let i = 1; i < chunks.length; i++) await interaction.followUp({ content: chunks[i] });
       } catch (err) {
         console.error('[discord] 坐标菜单处理异常:', err?.message || err);
@@ -295,9 +314,15 @@ export function startDiscord({ onMessage } = {}) {
       for (const f of r.files || []) {
         attachments.push(new AttachmentBuilder(Buffer.from(f.content, 'utf8'), { name: f.filename }));
       }
-
+      const mapComponents = [];
+      if (r.coordinates) {
+        mapComponents.push(new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setLabel('📍 在地图中查看').setStyle(ButtonStyle.Link)
+            .setURL(`https://www.google.com/maps?q=${r.coordinates.latitude},${r.coordinates.longitude}`)
+        ));
+      }
       const chunks = splitText((r.text || '').trim() || '(无内容)', 2000);
-      await interaction.editReply({ content: chunks[0], files: attachments.length ? attachments : undefined });
+      await interaction.editReply({ content: chunks[0], files: attachments.length ? attachments : undefined, components: mapComponents.length ? mapComponents : undefined });
       for (let i = 1; i < chunks.length; i++) {
         await interaction.followUp({ content: chunks[i] });
       }
