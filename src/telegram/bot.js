@@ -4,7 +4,8 @@
 // 收到文本 → onMessage 返回 { text, files } → 先发 .txt 附件(sendDocument)再发文字。
 // ============================================================================
 import { config } from '../config.js';
-import { findCoordinateById, addCoordinate } from '../db/coordinates.js';
+import { findCoordinateById } from '../db/coordinates.js';
+import addCoordinateTool from '../agent/tools/addCoordinate.js';
 
 // ---- 坐标交互菜单:内存缓存 + 会话状态 ----
 let coordSeq = 0;
@@ -257,8 +258,13 @@ export function startTelegram({ onMessage } = {}) {
         return;
       }
       try {
-        const saved = await addCoordinate({ name: spotName, latitude: pending.lat, longitude: pending.lng, note: spotNote });
-        await sendMessage(chatId, `✅ 已保存钓点: ${saved.name}\n坐标: (${saved.latitude}, ${saved.longitude})${saved.note ? `\n备注: ${saved.note}` : ''}`);
+        const result = await addCoordinateTool.execute({ name: spotName, latitude: pending.lat, longitude: pending.lng, note: spotNote });
+        const saved = result.coordinate;
+        let msg = `✅ 已保存钓点: ${saved.name}\n坐标: (${saved.latitude}, ${saved.longitude})`;
+        if (saved.state) msg += `\n州: ${saved.state}`;
+        if (saved.distance != null) msg += `\n距离: ${saved.distance} mi`;
+        if (saved.note) msg += `\n备注: ${saved.note}`;
+        await sendMessage(chatId, msg);
       } catch (err) {
         console.error('[tg] 添加钓点失败:', err?.message || err);
         await sendMessage(chatId, `添加钓点失败: ${err?.message || '未知错误'}`);

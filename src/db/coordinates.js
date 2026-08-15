@@ -3,14 +3,14 @@ import { query } from './pool.js';
 
 export async function listCoordinates() {
   const { rows } = await query(
-    'SELECT id, name, latitude, longitude, note, created_at FROM coordinates ORDER BY id'
+    'SELECT id, name, latitude, longitude, note, state, distance, created_at FROM coordinates ORDER BY id'
   );
   return rows;
 }
 
 export async function findCoordinateByName(name) {
   const { rows } = await query(
-    'SELECT id, name, latitude, longitude, note, created_at FROM coordinates WHERE lower(name) = lower($1) LIMIT 1',
+    'SELECT id, name, latitude, longitude, note, state, distance, created_at FROM coordinates WHERE lower(name) = lower($1) LIMIT 1',
     [name]
   );
   return rows[0] || null;
@@ -22,7 +22,7 @@ export async function searchCoordinates(term) {
   // 转义 LIKE 通配符,避免用户输入里的 % _ 影响匹配
   const escaped = String(term).replace(/([%_\\])/g, '\\$1');
   const { rows } = await query(
-    `SELECT id, name, latitude, longitude, note, created_at
+    `SELECT id, name, latitude, longitude, note, state, distance, created_at
        FROM coordinates
       WHERE name ILIKE '%' || $1 || '%' ESCAPE '\\'
          OR note ILIKE '%' || $1 || '%' ESCAPE '\\'
@@ -32,23 +32,25 @@ export async function searchCoordinates(term) {
   return rows;
 }
 
-export async function addCoordinate({ name, latitude, longitude, note }) {
+export async function addCoordinate({ name, latitude, longitude, note, state, distance }) {
   const { rows } = await query(
-    `INSERT INTO coordinates (name, latitude, longitude, note)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO coordinates (name, latitude, longitude, note, state, distance)
+     VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (lower(name)) DO UPDATE
        SET latitude = EXCLUDED.latitude,
            longitude = EXCLUDED.longitude,
-           note = EXCLUDED.note
-     RETURNING id, name, latitude, longitude, note, created_at`,
-    [name, latitude, longitude, note || null]
+           note = EXCLUDED.note,
+           state = EXCLUDED.state,
+           distance = EXCLUDED.distance
+     RETURNING id, name, latitude, longitude, note, state, distance, created_at`,
+    [name, latitude, longitude, note || null, state || null, distance != null ? distance : null]
   );
   return rows[0];
 }
 
 export async function findCoordinateById(id) {
   const { rows } = await query(
-    'SELECT id, name, latitude, longitude, note, created_at FROM coordinates WHERE id = $1 LIMIT 1',
+    'SELECT id, name, latitude, longitude, note, state, distance, created_at FROM coordinates WHERE id = $1 LIMIT 1',
     [id]
   );
   return rows[0] || null;

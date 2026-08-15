@@ -98,6 +98,16 @@ export const config = {
     // 未给 DATABASE_URL 时，pg 会自动读 PGHOST/PGUSER 等标准变量
   },
 
+  // 用户家坐标(用于自动计算钓点开车距离)
+  home: (() => {
+    const raw = process.env.HOME_COORDINATES || '';
+    const parts = raw.split(',').map((s) => Number(s.trim()));
+    if (parts.length === 2 && Number.isFinite(parts[0]) && Number.isFinite(parts[1])) {
+      return { lat: parts[0], lng: parts[1] };
+    }
+    return null;
+  })(),
+
   rootDir,
 };
 
