@@ -71,3 +71,21 @@ export function isAllowedUser(allowed, username, uid) {
   const id = String(uid ?? '');
   return (!!u && allowed.includes(u)) || (!!id && allowed.includes(id));
 }
+
+
+/**
+ * 检测文本是否为裸坐标(如 "41.48, -71.33" / "(41.48, -71.33)" / "41.48 -71.33")。
+ * 至少一侧带小数点(避免 "1 2" / "5, 10" 误判成坐标)。
+ * @param {string} text
+ * @returns {{ lat: number, lng: number } | null}
+ */
+export function parseRawCoords(text) {
+  const m = String(text).match(/^\s*\(?(-?\d+\.?\d*)\s*[,\s]\s*(-?\d+\.?\d*)\)?\s*$/);
+  if (!m) return null;
+  if (!m[1].includes('.') && !m[2].includes('.')) return null;
+  const lat = Number(m[1]);
+  const lng = Number(m[2]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return { lat, lng };
+}

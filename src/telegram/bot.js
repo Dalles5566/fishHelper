@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
 import { findCoordinateById } from '../db/coordinates.js';
 import { executeTool } from '../agent/tools/registerTools.js';
-import { buildSpotListMessage, isAdminUser, isAllowedUser } from '../shared/spotFormat.js';
+import { buildSpotListMessage, isAdminUser, isAllowedUser, parseRawCoords } from '../shared/spotFormat.js';
 
 // ---- 坐标交互菜单:内存缓存 + 会话状态 ----
 const STATE_TTL_MS = 30 * 60 * 1000; // 坐标缓存/待输入状态的存活时间
@@ -25,19 +25,6 @@ const pendingAddSpot = new Map();
 
 /** 会话状态 key(同一 chat 里按用户隔离) */
 const stateKey = (chatId, userId) => `${chatId}_${userId}`;
-
-/** 检测文本是否为裸坐标(如 "41.48, -71.33" / "(41.48, -71.33)" / "41.48 -71.33") */
-function parseRawCoords(text) {
-  const m = String(text).match(/^\s*\(?(-?\d+\.?\d*)\s*[,\s]\s*(-?\d+\.?\d*)\)?\s*$/);
-  if (!m) return null;
-  // 至少一侧带小数点,避免把 "1 2" / "5, 10" 这类纯整数闲聊误判成坐标
-  if (!m[1].includes('.') && !m[2].includes('.')) return null;
-  const lat = Number(m[1]);
-  const lng = Number(m[2]);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
-  return { lat, lng };
-}
 
 /** 缓存坐标并生成操作菜单按钮 */
 function buildCoordMenu(lat, lng, chatId, userId, isAdmin) {

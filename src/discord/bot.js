@@ -4,9 +4,17 @@
 // 收到文本(私聊 + @mention) → onMessage → { text, files } → 回复文字 + .txt 附件。
 // ============================================================================
 import { Client, GatewayIntentBits, Partials, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
 import { findCoordinateById } from '../db/coordinates.js';
-import { buildSpotListMessage, isAdminUser, isAllowedUser } from '../shared/spotFormat.js';
+import { executeTool } from '../agent/tools/registerTools.js';
+import { buildSpotListMessage, isAdminUser, isAllowedUser, parseRawCoords } from '../shared/spotFormat.js';
+
+// ---- 坐标交互菜单:内存缓存 + 会话状态(与 Telegram 同样逻辑) ----
+const STATE_TTL_MS = 30 * 60 * 1000;
+const MAX_SPOT_NAME_LEN = 60;
+const coordCache = new Map();
+const pendingAddSpot = new Map();
 
 /**
  * 启动 Discord bot。未配置 token 则跳过并返回 null。
@@ -34,6 +42,14 @@ export function startDiscord({ onMessage } = {}) {
   client.once('ready', () => {
     console.log(`[discord] Discord bot 已上线: ${client.user.tag}`);
   });
+
+  // 定期清理过期坐标缓存/pending 状态
+  const sweepTimer = setInterval(() => {
+    const cutoff = Date.now() - STATE_TTL_MS;
+    for (const [k, v] of coordCache) if (v.ts < cutoff) coordCache.delete(k);
+    for (const [k, v] of pendingAddSpot) if (v.ts < cutoff) pendingAddSpot.delete(k);
+  }, 10 * 60 * 1000);
+  sweepTimer.unref?.();
 
   client.on('messageCreate', async (msg) => {
     // 忽略自身消息
@@ -70,9 +86,63 @@ export function startDiscord({ onMessage } = {}) {
     // 输入提示
     msg.channel.sendTyping().catch(() => {});
 
+    const isAdmin = isAdminUser('discord', username, uid);
+
+    // ---- 裸坐标拦截:弹按钮菜单让用户选操作 ----
+    const rawCoords = parseRawCoords(text);
+    if (rawCoords) {
+      console.log(`[discord] 裸坐标识别: ${rawCoords.lat}, ${rawCoords.lng}`);
+      // 清掉上一轮未完成的"添加钓点"状态
+      pendingAddSpot.delete(`${msg.channel.id}_${uid}`);
+      const token = randomUUID().slice(0, 8);
+      coordCache.set(token, { lat: rawCoords.lat, lng: rawCoords.lng, channelId: msg.channel.id, userId: uid, ts: Date.now() });
+      const rows = [];
+      const btns = [];
+      if (isAdmin) btns.push({ label: '📍 添加钓点', id: `coord_${token}_add` });
+      btns.push(
+        { label: '🔍 查询现在', id: `coord_${token}_now` },
+        { label: '📊 查询今天', id: `coord_${token}_today` },
+        { label: '📅 查询明天', id: `coord_${token}_tomorrow` },
+      );
+      for (let i = 0; i < btns.length; i += 5) {
+        const row = new ActionRowBuilder();
+        for (const b of btns.slice(i, i + 5)) {
+          row.addComponents(new ButtonBuilder().setCustomId(b.id).setLabel(b.label).setStyle(ButtonStyle.Primary));
+        }
+        rows.push(row);
+      }
+      await msg.reply({ content: `收到坐标 (${rawCoords.lat.toFixed(5)}, ${rawCoords.lng.toFixed(5)})\n请选择操作:`, components: rows });
+      return;
+    }
+
+    // ---- 检查 pending 添加钓点状态 ----
+    const pendingKey = `${msg.channel.id}_${uid}`;
+    const pending = pendingAddSpot.get(pendingKey);
+    if (pending) {
+      pendingAddSpot.delete(pendingKey);
+      const commaIdx = text.indexOf(',');
+      const spotName = (commaIdx > 0 ? text.slice(0, commaIdx) : text).trim();
+      const spotNote = commaIdx > 0 ? text.slice(commaIdx + 1).trim() || null : null;
+      if (!spotName) { await msg.reply('名字不能为空,请重新发送坐标再试。'); return; }
+      if (spotName.length > MAX_SPOT_NAME_LEN) { await msg.reply(`名字太长(超过 ${MAX_SPOT_NAME_LEN} 字),请换个短点的。`); return; }
+      try {
+        const result = await executeTool('addCoordinate', { name: spotName, latitude: pending.lat, longitude: pending.lng, note: spotNote }, { isAdmin });
+        if (result?.error) { await msg.reply(`添加钓点失败: ${result.message || '未知错误'}`); return; }
+        const saved = result.coordinate;
+        const lines = [`✅ 已保存钓点: ${saved.name}`, `坐标: (${saved.latitude}, ${saved.longitude})`];
+        if (saved.state) lines.push(`州: ${saved.state}`);
+        if (saved.distance != null) lines.push(`距离: ${saved.distance} mi`);
+        if (saved.note) lines.push(`备注: ${saved.note}`);
+        await msg.reply(lines.join('\n'));
+      } catch (err) {
+        console.error('[discord] 添加钓点失败:', err?.message || err);
+        await msg.reply(`添加钓点失败: ${err?.message || '未知错误'}`);
+      }
+      return;
+    }
+
     let result;
     try {
-      const isAdmin = isAdminUser('discord', username, uid);
       result = await onMessage({ text, userId: who, chatId: msg.channel.id, isAdmin });
     } catch (err) {
       console.error('[discord] onMessage 处理异常:', err?.message || err);
@@ -139,10 +209,61 @@ export function startDiscord({ onMessage } = {}) {
     }
   });
 
-  // ---- 按钮点击:钓点选择 → 触发今天 prediction 分析 ----
+  // ---- 按钮点击:坐标菜单 + 钓点选择 ----
   client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
     const customId = interaction.customId;
+
+    // ---- 坐标菜单按钮:coord_<token>_<action> ----
+    if (customId.startsWith('coord_')) {
+      const parts = customId.split('_'); // ['coord', token, action]
+      const cacheToken = parts[1];
+      const action = parts[2];
+      const cached = coordCache.get(cacheToken);
+      if (!cached) {
+        await interaction.reply({ content: '坐标已过期,请重新发送。', ephemeral: true });
+        return;
+      }
+      const username = interaction.user.username || '';
+      const uid = interaction.user.id;
+      if (cached.userId !== uid) {
+        await interaction.reply({ content: '这不是你的坐标菜单。', ephemeral: true });
+        return;
+      }
+      const isAdmin = isAdminUser('discord', username, uid);
+
+      if (action === 'add') {
+        if (!isAdmin) {
+          await interaction.reply({ content: '只有管理员能添加钓点。', ephemeral: true });
+          return;
+        }
+        pendingAddSpot.set(`${interaction.channel.id}_${uid}`, { lat: cached.lat, lng: cached.lng, ts: Date.now() });
+        await interaction.reply(`请输入钓点名称和备注,格式:\n名字, 备注\n\n例如: Fort Adams, 石头堤坝尽头\n\n坐标: (${cached.lat.toFixed(5)}, ${cached.lng.toFixed(5)})`);
+        return;
+      }
+
+      // 查询操作
+      await interaction.deferReply();
+      let queryText;
+      if (action === 'now') queryText = `${cached.lat}, ${cached.lng} 现在怎么样?`;
+      else if (action === 'today') queryText = `${cached.lat}, ${cached.lng} 今天怎么样?`;
+      else queryText = `${cached.lat}, ${cached.lng} 明天怎么样?`;
+
+      try {
+        const result = await onMessage({ text: queryText, userId: username || uid, chatId: interaction.channel.id, isAdmin });
+        const r = typeof result === 'string' ? { text: result, files: [] } : result;
+        const files = (r.files || []).map((f) => new AttachmentBuilder(Buffer.from(f.content, 'utf8'), { name: f.filename }));
+        const chunks = splitText((r.text || '').trim() || '(无内容)', 2000);
+        await interaction.editReply({ content: chunks[0], files: files.length ? files : undefined });
+        for (let i = 1; i < chunks.length; i++) await interaction.followUp({ content: chunks[i] });
+      } catch (err) {
+        console.error('[discord] 坐标菜单处理异常:', err?.message || err);
+        await interaction.editReply({ content: '抱歉,处理时出错了。' }).catch(() => {});
+      }
+      return;
+    }
+
+    // ---- 钓点选择按钮:spot_<id> → 触发今天分析 ----
     if (!customId.startsWith('spot_')) return;
 
     const spotId = Number(customId.slice(5));
