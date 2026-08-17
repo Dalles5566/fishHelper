@@ -263,24 +263,22 @@ export function startTelegram({ onMessage } = {}) {
     // 记住用户语言(按钮回调时用)。放在白名单之后:否则任何陌生人发一条消息
     // 都会在这个 Map 里留下条目。
     const lang = detectLang(text);
-    userLang.set(uid, { lang, ts: Date.now() });
 
     const isAdmin = isAdminUser('tg', username, uid);
     const pendingKey = stateKey(chatId, uid);
 
     // ---- 裸坐标拦截:弹操作菜单而不是直接走 agent ----
-    //   必须排在 pending 检查【之前】:否则 pending 期间发坐标会被当成"名字, 备注",
-    //   存出 name="41.48" / note="-71.33" 这种垃圾数据。
+    //   裸坐标不写 userLang:发坐标不代表切语言,菜单沿用上次记住的语言。
     const rawCoords = parseRawCoords(text);
     if (rawCoords) {
       console.log(`[tg] 裸坐标识别: ${rawCoords.lat}, ${rawCoords.lng}`);
-      pendingAddSpot.delete(pendingKey); // 新坐标作废上一轮未完成的添加
-      const menu = buildCoordMenu(rawCoords.lat, rawCoords.lng, chatId, uid, isAdmin, lang);
+      pendingAddSpot.delete(pendingKey);
+      const menuLang = langOf(uid);
+      const menu = buildCoordMenu(rawCoords.lat, rawCoords.lng, chatId, uid, isAdmin, menuLang);
       await sendMessage(chatId, menu.text, { reply_markup: menu.reply_markup });
       return;
     }
 
-    // ---- 检查 pending 添加钓点状态:用户点了"添加钓点"后,下一条消息作为"名字, 备注" ----
     // 走到这里说明不是裸坐标 → 记住语言(按钮回调时用)
     userLang.set(uid, { lang, ts: Date.now() });
 
