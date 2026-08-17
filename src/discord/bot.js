@@ -110,30 +110,34 @@ export function startDiscord({ onMessage } = {}) {
 
     // 记住语言(放在白名单之后:否则陌生人一条消息就会在 Map 里留条目)
     const lang = detectLang(text);
-    userLang.set(uid, { lang, ts: Date.now() });
 
     const isAdmin = isAdminUser('discord', username, uid);
     const pendingKey = stateKey(msg.channel.id, uid);
 
     // ---- 裸坐标拦截:弹按钮菜单让用户选操作 ----
     //   排在 pending 检查【之前】:否则 pending 期间发坐标会被当成"名字, 备注"
+    //   裸坐标不写 userLang:发坐标不代表切语言,菜单/回复沿用上次记住的语言。
     const rawCoords = parseRawCoords(text);
     if (rawCoords) {
       console.log(`[discord] 裸坐标识别: ${rawCoords.lat}, ${rawCoords.lng}`);
       pendingAddSpot.delete(pendingKey); // 新坐标作废上一轮未完成的添加
+      const menuLang = langOf(uid); // 用上次记住的语言
       const cacheToken = randomUUID().slice(0, 8);
       coordCache.set(cacheToken, {
         lat: rawCoords.lat, lng: rawCoords.lng, channelId: msg.channel.id, userId: uid, ts: Date.now(),
       });
       // 最多 4 个按钮,放一行即可
       const row = new ActionRowBuilder().addComponents(
-        ...coordMenuButtons(cacheToken, isAdmin, lang).map((b) =>
+        ...coordMenuButtons(cacheToken, isAdmin, menuLang).map((b) =>
           new ButtonBuilder().setCustomId(b.id).setLabel(b.label).setStyle(ButtonStyle.Primary)
         )
       );
-      await msg.reply({ content: coordMenuTitle(rawCoords.lat, rawCoords.lng, lang), components: [row] });
+      await msg.reply({ content: coordMenuTitle(rawCoords.lat, rawCoords.lng, menuLang), components: [row] });
       return;
     }
+
+    // 走到这里说明不是裸坐标 → 记住语言(按钮回调时用)
+    userLang.set(uid, { lang, ts: Date.now() });
 
     // ---- 检查 pending 添加钓点状态 ----
     const pending = pendingAddSpot.get(pendingKey);

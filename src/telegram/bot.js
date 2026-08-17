@@ -281,6 +281,9 @@ export function startTelegram({ onMessage } = {}) {
     }
 
     // ---- 检查 pending 添加钓点状态:用户点了"添加钓点"后,下一条消息作为"名字, 备注" ----
+    // 走到这里说明不是裸坐标 → 记住语言(按钮回调时用)
+    userLang.set(uid, { lang, ts: Date.now() });
+
     const pending = pendingAddSpot.get(pendingKey);
     if (pending) {
       pendingAddSpot.delete(pendingKey);
