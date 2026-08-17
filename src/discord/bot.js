@@ -124,7 +124,7 @@ export function startDiscord({ onMessage } = {}) {
       const menuLang = langOf(uid); // 用上次记住的语言(不是从坐标文本 detect 的)
       const cacheToken = randomUUID().slice(0, 8);
       coordCache.set(cacheToken, {
-        lat: rawCoords.lat, lng: rawCoords.lng, channelId: msg.channel.id, userId: uid, ts: Date.now(),
+        lat: rawCoords.lat, lng: rawCoords.lng, channelId: msg.channel.id, userId: uid, lang: menuLang, ts: Date.now(),
       });
       // 最多 4 个按钮,放一行即可
       const row = new ActionRowBuilder().addComponents(
@@ -245,10 +245,8 @@ export function startDiscord({ onMessage } = {}) {
     const customId = interaction.customId;
     const username = interaction.user.username || '';
     const uid = interaction.user.id;
-    const lang = config.defaultLang;
     const isAdmin = isAdminUser('discord', username, uid);
-    // interaction token 15 分钟过期,所有回复都要兜底(否则抛到全局 unhandledRejection,
-    // 用户侧只看到 Discord 自己那句 "This interaction failed")
+    // interaction token 15 分钟过期,所有回复都要兜底
     const ephemeral = (content) =>
       interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => {});
 
@@ -256,6 +254,8 @@ export function startDiscord({ onMessage } = {}) {
     if (customId.startsWith('coord_')) {
       const [, cacheToken, action] = customId.split('_');
       const cached = coordCache.get(cacheToken);
+      // 菜单渲染时就存了语言,按钮点击直接沿用
+      const lang = cached?.lang || langOf(uid);
       if (!cached) {
         await ephemeral(lang === 'zh' ? '坐标已过期,请重新发送。' : 'Coordinates expired, send them again.');
         return;
@@ -309,6 +309,7 @@ export function startDiscord({ onMessage } = {}) {
     if (!customId.startsWith('spot_')) return;
     const spotId = Number(customId.slice(5));
     if (!Number.isFinite(spotId) || spotId <= 0) return; // 防 NaN 打到数据库
+    const lang = langOf(uid); // 用上次记住的语言
 
     try {
       await interaction.deferReply();

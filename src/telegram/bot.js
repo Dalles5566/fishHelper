@@ -131,8 +131,9 @@ export function startTelegram({ onMessage } = {}) {
         const action = parts[2]; // 'add' | 'now' | 'today' | 'tomorrow'
         const username = cb.from?.username || '';
         const uid = String(cb.from?.id || '');
-        const lang = langOf(uid);
         const cached = coordCache.get(cacheToken);
+        // 菜单渲染时就存了语言,按钮点击直接沿用(不从 userLang 重查)
+        const lang = cached?.lang || langOf(uid);
         if (!cached) {
           const msg = lang === 'zh' ? '坐标已过期,请重新发送' : 'Coordinates expired, send them again';
           call('answerCallbackQuery', { callback_query_id: cb.id, text: msg }).catch(() => {});
