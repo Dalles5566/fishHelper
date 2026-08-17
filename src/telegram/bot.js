@@ -14,14 +14,12 @@ import {
   STATE_TTL_MS, SWEEP_INTERVAL_MS, PENDING_ADD_TIMEOUT_MS,
 } from '../shared/spotFormat.js';
 
-/**
- * 缓存坐标 { [token]: { lat, lng, chatId, userId, ts } } —— 按钮回调时取回坐标。
- * key 用随机 token 而非自增整数:进程重启后自增会从头发号,旧消息上的按钮会命中
- * 新坐标,静默给出"看着正常但地点错了"的报告(比报错更难发现)。
- */
+/** 坐标缓存 { [token]: { lat, lng, chatId, userId, ts } } */
 const coordCache = new Map();
 /** 等待用户输入"名字, 备注" { [chatId_userId]: { lat, lng, ts } } */
 const pendingAddSpot = new Map();
+/** 记住每个用户最后一次文字消息的语言 { [uid]: { lang, ts } } */
+const userLang = new Map();
 
 /** 缓存坐标并生成操作菜单(按钮 + 标题,语言跟随用户) */
 function buildCoordMenu(lat, lng, chatId, userId, isAdmin, lang) {
@@ -65,13 +63,18 @@ export function startTelegram({ onMessage } = {}) {
   let offset = 0;
   let running = true;
 
-  // 定期清理过期的坐标缓存/待输入状态/语言记忆。unref() 让它不拖住进程退出。
+  // 定期清理过期状态。unref() 让它不拖住进程退出。
   const sweepTimer = setInterval(() => {
     const cutoff = Date.now() - STATE_TTL_MS;
     for (const [k, v] of coordCache) if (v.ts < cutoff) coordCache.delete(k);
     for (const [k, v] of pendingAddSpot) if (v.ts < cutoff) pendingAddSpot.delete(k);
+    const langCutoff = Date.now() - 24 * 60 * 60 * 1000;
+    for (const [k, v] of userLang) if (v.ts < langCutoff) userLang.delete(k);
   }, SWEEP_INTERVAL_MS);
   sweepTimer.unref?.();
+
+  /** 取用户语言(无记录时用默认语言) */
+  const langOf = (uid) => userLang.get(uid)?.lang || config.defaultLang;
 
   async function call(method, body, isForm = false) {
     const opts = { method: 'POST' };
@@ -271,6 +274,7 @@ export function startTelegram({ onMessage } = {}) {
     }
 
     // 走到这里说明不是裸坐标 → 记住语言(按钮回调时用)
+    userLang.set(uid, { lang, ts: Date.now() });
 
     const pending = pendingAddSpot.get(pendingKey);
     if (pending) {

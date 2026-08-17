@@ -28,6 +28,8 @@ const BUTTONS_PER_ROW = 5;
 const coordCache = new Map();
 /** 等待用户输入"名字, 备注" { [channelId_userId]: { lat, lng, ts } } */
 const pendingAddSpot = new Map();
+/** 用户最后一次文字消息的语言 { [uid]: { lang, ts } } */
+const userLang = new Map();
 
 /** 把导航按钮包成 Discord 的 ActionRow 数组(无坐标返回空数组) */
 function navRows(coordinates, lang) {
@@ -72,8 +74,13 @@ export function startDiscord({ onMessage } = {}) {
     const cutoff = Date.now() - STATE_TTL_MS;
     for (const [k, v] of coordCache) if (v.ts < cutoff) coordCache.delete(k);
     for (const [k, v] of pendingAddSpot) if (v.ts < cutoff) pendingAddSpot.delete(k);
+    const langCutoff = Date.now() - 24 * 60 * 60 * 1000;
+    for (const [k, v] of userLang) if (v.ts < langCutoff) userLang.delete(k);
   }, SWEEP_INTERVAL_MS);
   sweepTimer.unref?.();
+
+  /** 取用户语言(无记录时用默认语言) */
+  const langOf = (uid) => userLang.get(uid)?.lang || config.defaultLang;
 
   client.on('messageCreate', async (msg) => {
     if (msg.author.id === client.user.id) return; // 忽略自身
@@ -109,11 +116,12 @@ export function startDiscord({ onMessage } = {}) {
 
     // ---- 裸坐标拦截:弹按钮菜单让用户选操作 ----
     //   排在 pending 检查【之前】:否则 pending 期间发坐标会被当成"名字, 备注"
+    //   裸坐标不写 userLang:发坐标不代表切语言,沿用上次记住的。
     const rawCoords = parseRawCoords(text);
     if (rawCoords) {
       console.log(`[discord] 裸坐标识别: ${rawCoords.lat}, ${rawCoords.lng}`);
       pendingAddSpot.delete(pendingKey); // 新坐标作废上一轮未完成的添加
-      const menuLang = config.defaultLang; // 用上次记住的语言
+      const menuLang = langOf(uid); // 用上次记住的语言(不是从坐标文本 detect 的)
       const cacheToken = randomUUID().slice(0, 8);
       coordCache.set(cacheToken, {
         lat: rawCoords.lat, lng: rawCoords.lng, channelId: msg.channel.id, userId: uid, ts: Date.now(),
@@ -129,6 +137,7 @@ export function startDiscord({ onMessage } = {}) {
     }
 
     // 走到这里说明不是裸坐标 → 记住语言(按钮回调时用)
+    userLang.set(uid, { lang, ts: Date.now() });
 
     // ---- 检查 pending 添加钓点状态 ----
     const pending = pendingAddSpot.get(pendingKey);
