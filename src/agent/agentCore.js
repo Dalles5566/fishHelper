@@ -114,8 +114,8 @@ async function runAnalyzeFast(intent, lang) {
   let name = null;
   let note = null;
 
-  // 没给坐标 → 用钓点名查库(精确 → 模糊)。0 个或多个候选 → 交回退让 LLM 处理/澄清
   if (latitude == null || longitude == null) {
+    // 没给坐标 → 用钓点名查库(精确 → 模糊)。0 个或多个候选 → 交回退让 LLM 处理/澄清
     const term = intent.spot ? String(intent.spot).trim() : '';
     if (!term) return null;
     let spot = await findCoordinateByName(term);
@@ -128,6 +128,13 @@ async function runAnalyzeFast(intent, lang) {
     longitude = spot.longitude;
     name = spot.name;
     note = spot.note ?? null;
+  } else if (intent.spot) {
+    // 有坐标也有钓点名 → 查库补 name/note(用于文件名和报告标题)
+    const spot = await findCoordinateByName(String(intent.spot).trim());
+    if (spot) {
+      name = spot.name;
+      note = spot.note ?? null;
+    }
   }
   if (latitude == null || longitude == null) return null;
 
