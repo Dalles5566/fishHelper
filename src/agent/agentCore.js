@@ -130,7 +130,13 @@ async function runAnalyzeFast(intent, lang) {
     note = spot.note ?? null;
   } else if (intent.spot) {
     // 有坐标也有钓点名 → 查库补 name/note(用于文件名和报告标题)
-    const spot = await findCoordinateByName(String(intent.spot).trim());
+    const term = String(intent.spot).trim();
+    let spot = await findCoordinateByName(term);
+    if (!spot) {
+      // 精确失败 → 模糊搜索,单条命中也用(已有坐标不怕歧义,只为拿 name/note)
+      const matches = await searchCoordinates(term);
+      if (matches.length >= 1) spot = matches[0];
+    }
     if (spot) {
       name = spot.name;
       note = spot.note ?? null;
