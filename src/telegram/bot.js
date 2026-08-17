@@ -22,8 +22,6 @@ import {
 const coordCache = new Map();
 /** 等待用户输入"名字, 备注" { [chatId_userId]: { lat, lng, ts } } */
 const pendingAddSpot = new Map();
-/** 记住每个用户最后一次文字消息的语言 { [uid]: { lang, ts } }(按钮回调时用) */
-const userLang = new Map();
 
 /** 缓存坐标并生成操作菜单(按钮 + 标题,语言跟随用户) */
 function buildCoordMenu(lat, lng, chatId, userId, isAdmin, lang) {
@@ -72,14 +70,8 @@ export function startTelegram({ onMessage } = {}) {
     const cutoff = Date.now() - STATE_TTL_MS;
     for (const [k, v] of coordCache) if (v.ts < cutoff) coordCache.delete(k);
     for (const [k, v] of pendingAddSpot) if (v.ts < cutoff) pendingAddSpot.delete(k);
-    // 语言记忆留得久一点(用户可能隔很久才点按钮),但也要有上界
-    const langCutoff = Date.now() - 24 * 60 * 60 * 1000;
-    for (const [k, v] of userLang) if (v.ts < langCutoff) userLang.delete(k);
   }, SWEEP_INTERVAL_MS);
   sweepTimer.unref?.();
-
-  /** 取用户语言(无记录时用默认语言) */
-  const langOf = (uid) => userLang.get(uid)?.lang || config.defaultLang;
 
   async function call(method, body, isForm = false) {
     const opts = { method: 'POST' };
@@ -136,7 +128,7 @@ export function startTelegram({ onMessage } = {}) {
         const action = parts[2]; // 'add' | 'now' | 'today' | 'tomorrow'
         const username = cb.from?.username || '';
         const uid = String(cb.from?.id || '');
-        const lang = langOf(uid);
+        const lang = config.defaultLang;
         const cached = coordCache.get(cacheToken);
         if (!cached) {
           const msg = lang === 'zh' ? '坐标已过期,请重新发送' : 'Coordinates expired, send them again';
@@ -201,7 +193,7 @@ export function startTelegram({ onMessage } = {}) {
       try {
         const username = cb.from?.username || '';
         const uid = String(cb.from?.id || '');
-        const lang = langOf(uid);
+        const lang = config.defaultLang;
         const spot = await findCoordinateById(spotId);
         if (!spot) {
           await sendMessage(cbChatId, lang === 'zh' ? '钓点未找到,可能已被删除。' : 'Spot not found, it may have been deleted.');
@@ -243,7 +235,7 @@ export function startTelegram({ onMessage } = {}) {
       // 新坐标作废上一轮未完成的"添加钓点":否则下一条文本会被存到旧坐标上
       pendingAddSpot.delete(stateKey(chatId, uid));
       // 位置消息没有自然语言可检测,用该用户上一次的语言(无记录则用默认)
-      const lang = langOf(uid);
+      const lang = config.defaultLang;
       const menu = buildCoordMenu(lat, lng, chatId, uid, isAdminUser('tg', username, uid), lang);
       await sendMessage(chatId, menu.text, { reply_markup: menu.reply_markup });
       return;
@@ -268,19 +260,17 @@ export function startTelegram({ onMessage } = {}) {
     const pendingKey = stateKey(chatId, uid);
 
     // ---- 裸坐标拦截:弹操作菜单而不是直接走 agent ----
-    //   裸坐标不写 userLang:发坐标不代表切语言,菜单沿用上次记住的语言。
     const rawCoords = parseRawCoords(text);
     if (rawCoords) {
       console.log(`[tg] 裸坐标识别: ${rawCoords.lat}, ${rawCoords.lng}`);
       pendingAddSpot.delete(pendingKey);
-      const menuLang = langOf(uid);
+      const menuLang = config.defaultLang;
       const menu = buildCoordMenu(rawCoords.lat, rawCoords.lng, chatId, uid, isAdmin, menuLang);
       await sendMessage(chatId, menu.text, { reply_markup: menu.reply_markup });
       return;
     }
 
     // 走到这里说明不是裸坐标 → 记住语言(按钮回调时用)
-    userLang.set(uid, { lang, ts: Date.now() });
 
     const pending = pendingAddSpot.get(pendingKey);
     if (pending) {
