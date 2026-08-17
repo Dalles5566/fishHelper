@@ -165,6 +165,46 @@ export function startTelegram({ onMessage } = {}) {
         return;
       }
 
+      // ---- 钓点选择按钮: spot_<id>_<lang> ----
+      if (data.startsWith('spot_')) {
+        const parts = data.split('_'); // ['spot', id, lang]
+        const spotId = Number(parts[1]);
+        const lang = parts[2] || 'en';
+        const username = cb.from?.username || '';
+        const uid = String(cb.from?.id || '');
+        const adminFlag = isAdmin(username, uid);
+
+        if (!Number.isFinite(spotId) || spotId <= 0) {
+          call('answerCallbackQuery', { callback_query_id: cb.id }).catch(() => {});
+          return;
+        }
+
+        const analyzing = lang === 'zh' ? '正在分析...' : 'Analyzing...';
+        call('answerCallbackQuery', { callback_query_id: cb.id, text: analyzing }).catch(() => {});
+        call('sendChatAction', { chat_id: cbChatId, action: 'typing' }).catch(() => {});
+
+        try {
+          // 用 spot id 查名字,构造自然语言查询
+          const { findCoordinateById } = await import('../db/coordinates.js');
+          const spot = await findCoordinateById(spotId);
+          if (!spot) {
+            const msg = lang === 'zh' ? '钓点未找到，可能已被删除。' : 'Spot not found, it may have been deleted.';
+            await sendMessage(cbChatId, msg);
+            return;
+          }
+          const queryText = lang === 'zh'
+            ? `${spot.name} 今天怎么样?`
+            : `${spot.name} how is it today?`;
+          const result = await onMessage({ text: queryText, userId: username || uid, chatId: String(cbChatId), isAdmin: adminFlag, lang });
+          await sendReply(cbChatId, result, lang);
+        } catch (err) {
+          console.error('[tg] 钓点按钮异常:', err?.message || err);
+          const errMsg = lang === 'zh' ? '抱歉，处理时出错了。' : 'Sorry, something went wrong.';
+          await sendMessage(cbChatId, errMsg).catch(() => {});
+        }
+        return;
+      }
+
       // 格式: c_<token>_<action>_<lang>
       if (!data.startsWith('c_')) {
         call('answerCallbackQuery', { callback_query_id: cb.id }).catch(() => {});
@@ -331,20 +371,23 @@ export function startTelegram({ onMessage } = {}) {
     }
 
     // ---- 普通文本 → 直接发 onMessage（agentCore 处理一切） ----
+    // 检测语言：含中文字符→zh，否则→en（agentCore 用它决定回复语言）
+    const lang = /[\u4e00-\u9fff]/.test(text) ? 'zh' : 'en';
+
     call('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {});
 
     let result;
     try {
-      result = await onMessage({ text, userId: who, chatId: String(chatId), isAdmin: adminFlag });
+      result = await onMessage({ text, userId: who, chatId: String(chatId), isAdmin: adminFlag, lang });
     } catch (err) {
       console.error('[tg] onMessage 处理异常:', err?.message || err);
       result = { text: '抱歉，处理时出错了，请稍后再试。 / Sorry, something went wrong.', files: [] };
     }
 
-    await sendReply(chatId, result);
+    await sendReply(chatId, result, lang);
   }
 
-  /** 统一发送 onMessage 返回结果（附件 + 文字 + 导航按钮） */
+  /** 统一发送 onMessage 返回结果（附件 + 文字 + 钓点按钮/导航按钮） */
   async function sendReply(chatId, result, lang) {
     const r = typeof result === 'string' ? { text: result, files: [] } : result;
     const effLang = r.lang || lang || 'en';
@@ -356,6 +399,27 @@ export function startTelegram({ onMessage } = {}) {
       } catch (err) {
         console.error(`[tg] 附件发送失败(${f.filename}):`, err?.message || err);
       }
+    }
+
+    // 有 spots 列表 → 渲染钓点选择按钮（每行 1 个，callback_data 带 lang）
+    if (Array.isArray(r.spots) && r.spots.length) {
+      const spots = r.spots.filter((s) => s && s.id != null && String(s.name || '').trim());
+      const buttons = spots.slice(0, 20).map((s, i) => [
+        { text: `${i + 1}. ${s.name}${s.state ? ` (${s.state})` : ''}`, callback_data: `spot_${s.id}_${effLang}` },
+      ]);
+      // 构造正文：序号列表 + 备注/距离
+      const listText = spots.slice(0, 20).map((s, i) => {
+        const lines = [`${i + 1}. ${s.name}${s.state ? ` (${s.state})` : ''}`];
+        if (s.note) lines.push(`   ${effLang === 'zh' ? '备注' : 'Note'}: ${s.note}`);
+        const dist = [];
+        if (s.distance != null) dist.push(`${s.distance} mi`);
+        if (s.drivingDuration) dist.push(s.drivingDuration);
+        if (dist.length) lines.push(`   ${dist.join(' | ')}`);
+        return lines.join('\n');
+      }).join('\n\n');
+      const extra = { reply_markup: JSON.stringify({ inline_keyboard: buttons }) };
+      await sendLongMessage(chatId, listText || '(无内容)', extra);
+      return;
     }
 
     // 发文字 + 导航按钮
