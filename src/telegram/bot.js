@@ -184,7 +184,7 @@ export function startTelegram({ onMessage } = {}) {
         call('sendChatAction', { chat_id: cbChatId, action: 'typing' }).catch(() => {});
 
         try {
-          // 用 spot id 查名字,构造自然语言查询
+          // 用 spot id 查库拿坐标,构造带坐标的查询(避免名字模糊匹配到多个钓点)
           const { findCoordinateById } = await import('../db/coordinates.js');
           const spot = await findCoordinateById(spotId);
           if (!spot) {
@@ -192,9 +192,10 @@ export function startTelegram({ onMessage } = {}) {
             await sendMessage(cbChatId, msg);
             return;
           }
+          const coordStr = `(${spot.latitude}, ${spot.longitude})`;
           const queryText = lang === 'zh'
-            ? `${spot.name} 今天怎么样?`
-            : `${spot.name} how is it today?`;
+            ? `查询${spot.name} ${coordStr}今天状况`
+            : `Check today's condition at ${spot.name} ${coordStr}`;
           const result = await onMessage({ text: queryText, userId: username || uid, chatId: String(cbChatId), isAdmin: adminFlag, lang });
           await sendReply(cbChatId, result, lang);
         } catch (err) {
