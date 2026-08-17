@@ -131,7 +131,7 @@ export function startTelegram({ onMessage } = {}) {
         const action = parts[2]; // 'add' | 'now' | 'today' | 'tomorrow'
         const username = cb.from?.username || '';
         const uid = String(cb.from?.id || '');
-        const lang = config.defaultLang;
+        const lang = langOf(uid);
         const cached = coordCache.get(cacheToken);
         if (!cached) {
           const msg = lang === 'zh' ? '坐标已过期,请重新发送' : 'Coordinates expired, send them again';
@@ -196,7 +196,7 @@ export function startTelegram({ onMessage } = {}) {
       try {
         const username = cb.from?.username || '';
         const uid = String(cb.from?.id || '');
-        const lang = config.defaultLang;
+        const lang = langOf(uid);
         const spot = await findCoordinateById(spotId);
         if (!spot) {
           await sendMessage(cbChatId, lang === 'zh' ? '钓点未找到,可能已被删除。' : 'Spot not found, it may have been deleted.');
@@ -238,7 +238,7 @@ export function startTelegram({ onMessage } = {}) {
       // 新坐标作废上一轮未完成的"添加钓点":否则下一条文本会被存到旧坐标上
       pendingAddSpot.delete(stateKey(chatId, uid));
       // 位置消息没有自然语言可检测,用该用户上一次的语言(无记录则用默认)
-      const lang = config.defaultLang;
+      const lang = langOf(uid);
       const menu = buildCoordMenu(lat, lng, chatId, uid, isAdminUser('tg', username, uid), lang);
       await sendMessage(chatId, menu.text, { reply_markup: menu.reply_markup });
       return;
@@ -267,7 +267,7 @@ export function startTelegram({ onMessage } = {}) {
     if (rawCoords) {
       console.log(`[tg] 裸坐标识别: ${rawCoords.lat}, ${rawCoords.lng}`);
       pendingAddSpot.delete(pendingKey);
-      const menuLang = config.defaultLang;
+      const menuLang = langOf(uid);
       const menu = buildCoordMenu(rawCoords.lat, rawCoords.lng, chatId, uid, isAdmin, menuLang);
       await sendMessage(chatId, menu.text, { reply_markup: menu.reply_markup });
       return;
