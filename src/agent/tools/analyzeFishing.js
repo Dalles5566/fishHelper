@@ -201,27 +201,37 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
     lines.push(`${l.waveHeight}: ${cw.waveHeight != null ? `${cw.waveHeight} ft` : nd}`);
     lines.push(`${l.wavePeriod}: ${cw.wavePeriod != null ? `${cw.wavePeriod} s` : nd}`);
   } else if (Array.isArray(hourlyBlocks) && hourlyBlocks.length) {
-    // Prediction: 3h blocks with pipe separator
+    // Prediction: 3h blocks — 时间一行,数据缩进在下一行,块之间空行
     // 顺序: 气温 → 天气(含降水/雷暴) → 风速 → 水温 → 浪高 → 浪周期
     const renderBlocks = (label, field) => {
       lines.push(`${label}:`);
+      let hasAny = false;
       for (const b of hourlyBlocks) {
-        if (b[field]) lines.push(`  ${b.range} | ${b[field]}`);
+        if (b[field]) {
+          lines.push(`  ${b.range}`);
+          lines.push(`    ${b[field]}`);
+          lines.push('');
+          hasAny = true;
+        }
       }
-      if (!hourlyBlocks.some((b) => b[field])) lines.push(`  ${nd}`);
+      if (!hasAny) lines.push(`  ${nd}`);
     };
     renderBlocks(l.airTemp, 'airTemp');
-    // 天气(含降水/雷暴概率,已在 computeHourlyBlocks 里按日期+时段算好)
+    // 天气(含降水/雷暴概率)
     lines.push(`${l.weather}:`);
+    let hasWeather = false;
     for (const b of hourlyBlocks) {
       if (b.weather) {
         const precip = b.precipProb || b.thunderProb
           ? `, Precip ${b.precipProb}%, Thunder ${b.thunderProb}%`
           : '';
-        lines.push(`  ${b.range} | ${b.weather}${precip}`);
+        lines.push(`  ${b.range}`);
+        lines.push(`    ${b.weather}${precip}`);
+        lines.push('');
+        hasWeather = true;
       }
     }
-    if (!hourlyBlocks.some((b) => b.weather)) lines.push(`  ${nd}`);
+    if (!hasWeather) lines.push(`  ${nd}`);
     renderBlocks(l.wind, 'wind');
     lines.push(`${l.waterTemp}: ${nd}`); // prediction 模式不取实测水温
     renderBlocks(l.waveHeight, 'waveHeight');
@@ -296,7 +306,9 @@ SpeciesName: ★★★★☆ - short reason
 
 ...
 
-Best Fishing Window: <time range> - <short reason>`;
+Best Fishing Window: <time range> - <short reason>
+
+IMPORTANT: Always output species names in English exactly as given in targetSpecies, regardless of the reply language.`;
 
 
 // ============================================================================
