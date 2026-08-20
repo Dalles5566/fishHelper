@@ -201,23 +201,19 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
     lines.push(`${l.waveHeight}: ${cw.waveHeight != null ? `${cw.waveHeight} ft` : nd}`);
     lines.push(`${l.wavePeriod}: ${cw.wavePeriod != null ? `${cw.wavePeriod} s` : nd}`);
   } else if (Array.isArray(hourlyBlocks) && hourlyBlocks.length) {
-    // Prediction: 3h blocks — 时间一行,数据缩进在下一行,块之间空行
+    // Prediction: 3h blocks
     // 顺序: 气温 → 天气(含降水/雷暴) → 风速 → 水温 → 浪高 → 浪周期
-    const renderBlocks = (label, field) => {
+    // 天气和风速:时间\n数据\n空行；其余紧凑: 时间 | 数据
+    const renderBlocksCompact = (label, field) => {
       lines.push(`${label}:`);
       let hasAny = false;
       for (const b of hourlyBlocks) {
-        if (b[field]) {
-          lines.push(`  ${b.range}`);
-          lines.push(`    ${b[field]}`);
-          lines.push('');
-          hasAny = true;
-        }
+        if (b[field]) { lines.push(`  ${b.range} | ${b[field]}`); hasAny = true; }
       }
       if (!hasAny) lines.push(`  ${nd}`);
     };
-    renderBlocks(l.airTemp, 'airTemp');
-    // 天气(含降水/雷暴概率)
+    renderBlocksCompact(l.airTemp, 'airTemp');
+    // 天气(含降水/雷暴概率) — 空行格式
     lines.push(`${l.weather}:`);
     let hasWeather = false;
     for (const b of hourlyBlocks) {
@@ -225,17 +221,28 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
         const precip = b.precipProb || b.thunderProb
           ? `, Precip ${b.precipProb}%, Thunder ${b.thunderProb}%`
           : '';
-        lines.push(`  ${b.range}`);
-        lines.push(`    ${b.weather}${precip}`);
+        lines.push(`${b.range}`);
+        lines.push(`${b.weather}${precip}`);
         lines.push('');
         hasWeather = true;
       }
     }
     if (!hasWeather) lines.push(`  ${nd}`);
-    renderBlocks(l.wind, 'wind');
+    // 风速 — 空行格式
+    lines.push(`${l.wind}:`);
+    let hasWind = false;
+    for (const b of hourlyBlocks) {
+      if (b.wind) {
+        lines.push(`${b.range}`);
+        lines.push(`${b.wind}`);
+        lines.push('');
+        hasWind = true;
+      }
+    }
+    if (!hasWind) lines.push(`  ${nd}`);
     lines.push(`${l.waterTemp}: ${nd}`); // prediction 模式不取实测水温
-    renderBlocks(l.waveHeight, 'waveHeight');
-    renderBlocks(l.wavePeriod, 'wavePeriod');
+    renderBlocksCompact(l.waveHeight, 'waveHeight');
+    renderBlocksCompact(l.wavePeriod, 'wavePeriod');
   } else {
     // prediction 但逐小时为空(如 NWS 失败 / 交集为空)→ 明确打印"无数据",避免看起来像报告被截断
     for (const label of [l.airTemp, l.weather, l.wind, l.waterTemp, l.waveHeight, l.wavePeriod]) {
