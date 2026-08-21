@@ -408,15 +408,31 @@ export function startTelegram({ onMessage } = {}) {
       }
     }
 
-    // 有 spots 列表 → 渲染钓点选择按钮（每行 1 个，callback_data 带 lang）
+    // 有 spots 列表 → 发地图图片 + 字母标号列表 + 按钮
     if (Array.isArray(r.spots) && r.spots.length) {
-      const spots = r.spots.filter((s) => s && s.id != null && String(s.name || '').trim());
-      const buttons = spots.slice(0, 20).map((s, i) => [
-        { text: `${i + 1}. ${s.name}${s.state ? ` (${s.state})` : ''}`, callback_data: `spot_${s.id}_${effLang}` },
+      const spots = r.spots.filter((s) => s && s.id != null && String(s.name || '').trim()).slice(0, 26);
+      const labels = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+      // 发送 Static Maps 地图图片（标号与列表对齐）
+      if (config.google.mapsApiKey && spots.length) {
+        const markers = spots.map((s, i) =>
+          `markers=color:red%7Clabel:${labels[i]}%7C${s.latitude},${s.longitude}`
+        ).join('&');
+        const mapUrl = `https://maps.googleapis.com/maps/api/staticmap?size=600x400&maptype=roadmap&${markers}&key=${config.google.mapsApiKey}`;
+        try {
+          await call('sendPhoto', { chat_id: chatId, photo: mapUrl });
+        } catch (err) {
+          console.error('[tg] 地图图片发送失败:', err?.message || err);
+        }
+      }
+
+      // 按钮：字母 + 名字
+      const buttons = spots.map((s, i) => [
+        { text: `${labels[i]}. ${s.name}`, callback_data: `spot_${s.id}_${effLang}` },
       ]);
-      // 构造正文：序号列表 + 备注/距离
-      const listText = spots.slice(0, 20).map((s, i) => {
-        const lines = [`${i + 1}. ${s.name}${s.state ? ` (${s.state})` : ''}`];
+      // 正文：字母标号列表 + 备注/距离
+      const listText = spots.map((s, i) => {
+        const lines = [`${labels[i]}. ${s.name}${s.state ? ` (${s.state})` : ''}`];
         if (s.note) lines.push(`   ${effLang === 'zh' ? '备注' : 'Note'}: ${s.note}`);
         const dist = [];
         if (s.distance != null) dist.push(`${s.distance} mi`);
