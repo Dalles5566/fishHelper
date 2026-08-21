@@ -220,7 +220,7 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
         lines.push(`■■■${b.range} | ${tempPart}■■■`);
         if (b.weather) {
           const precip = b.precipProb || b.thunderProb
-            ? `, Precip ${b.precipProb}%, Thunder ${b.thunderProb}%`
+            ? `, 🌧️ ${b.precipProb}%, ⚡ ${b.thunderProb}%`
             : '';
           lines.push(`${b.weather}${precip}`);
         }
