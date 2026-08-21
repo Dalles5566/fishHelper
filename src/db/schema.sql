@@ -30,6 +30,8 @@ INSERT INTO coordinates (name, latitude, longitude, note, state, distance) VALUE
   ('Church Woods Hole', 41.51560726125236, -70.65535288844315, '第一次钓鱼的地方', 'MA', 71.3),
   ('Nantasket Beach Resort', 42.2785546, -70.8646471, '抓蟹', 'MA', 13.8),
   ('Rocky Point State Park', 41.6885902, -71.3643383, '阿妈发我的位置', 'RI', 59.4),
-  ('铁路', 41.6388759, -71.2142439, NULL, 'RI', 54.5),
-  ('Sachuest Point National Wildlife Refuge', 41.4769192, -71.2397108, 'Rhode Island 公园', 'RI', 68.4)
+  ('Sachuest Point National Wildlife Refuge', 41.4769192, -71.2397108, 'Rhode Island 公园', 'RI', 68.4),
+  ('铁轨', 41.638881, -71.214519, NULL, 'RI', 54.5),
+  ('铁轨对面', 41.6379405, -71.2109941, NULL, 'RI', 54.6),
+  ('自己发现的Scup位置', 41.498421, -71.322184, NULL, 'RI', 67.1)
 ON CONFLICT (lower(name)) DO NOTHING;
