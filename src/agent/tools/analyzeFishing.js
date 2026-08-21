@@ -217,7 +217,7 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
     for (const b of hourlyBlocks) {
       if (b.airTemp || b.weather) {
         const tempPart = b.airTemp || nd;
-        lines.push(`${b.range} | ${tempPart}`);
+        lines.push(`      ${b.range} | ${tempPart}`);
         if (b.weather) {
           const precip = b.precipProb || b.thunderProb
             ? `, Precip ${b.precipProb}%, Thunder ${b.thunderProb}%`
