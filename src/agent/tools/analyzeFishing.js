@@ -213,7 +213,7 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
       if (!hasAny) lines.push(`  ${nd}`);
     };
     renderBlocksCompact(l.airTemp, 'airTemp');
-    // 天气(含降水/雷暴概率) — 空行格式
+    // 天气(含降水/雷暴概率)
     lines.push(`${l.weather}:`);
     let hasWeather = false;
     for (const b of hourlyBlocks) {
@@ -223,19 +223,17 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
           : '';
         lines.push(`${b.range}`);
         lines.push(`${b.weather}${precip}`);
-        lines.push('');
         hasWeather = true;
       }
     }
     if (!hasWeather) lines.push(`  ${nd}`);
-    // 风速 — 空行格式
+    // 风速
     lines.push(`${l.wind}:`);
     let hasWind = false;
     for (const b of hourlyBlocks) {
       if (b.wind) {
         lines.push(`${b.range}`);
         lines.push(`${b.wind}`);
-        lines.push('');
         hasWind = true;
       }
     }
