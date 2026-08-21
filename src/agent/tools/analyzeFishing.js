@@ -232,7 +232,7 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
     let hasWind = false;
     for (const b of hourlyBlocks) {
       if (b.wind) {
-        lines.push(`${b.range} | ${b.wind}`);
+        lines.push(`  ${b.range} | ${b.wind}`);
         hasWind = true;
       }
     }
