@@ -202,8 +202,7 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
     lines.push(`${l.wavePeriod}: ${cw.wavePeriod != null ? `${cw.wavePeriod} s` : nd}`);
   } else if (Array.isArray(hourlyBlocks) && hourlyBlocks.length) {
     // Prediction: 3h blocks
-    // 顺序: 气温 → 天气(含降水/雷暴) → 风速 → 水温 → 浪高 → 浪周期
-    // 天气和风速:时间\n数据\n空行；其余紧凑: 时间 | 数据
+    // 顺序: 气温+天气(合并) → 风速 → 水温 → 浪高 → 浪周期
     const renderBlocksCompact = (label, field) => {
       lines.push(`${label}:`);
       let hasAny = false;
@@ -212,17 +211,19 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
       }
       if (!hasAny) lines.push(`  ${nd}`);
     };
-    renderBlocksCompact(l.airTemp, 'airTemp');
-    // 天气(含降水/雷暴概率)
+    // 气温+天气合并: 时间 | 温度 换行 天气信息
     lines.push(`${l.weather}:`);
     let hasWeather = false;
     for (const b of hourlyBlocks) {
-      if (b.weather) {
-        const precip = b.precipProb || b.thunderProb
-          ? `, Precip ${b.precipProb}%, Thunder ${b.thunderProb}%`
-          : '';
-        lines.push(`${b.range}`);
-        lines.push(`${b.weather}${precip}`);
+      if (b.airTemp || b.weather) {
+        const tempPart = b.airTemp || nd;
+        lines.push(`${b.range} | ${tempPart}`);
+        if (b.weather) {
+          const precip = b.precipProb || b.thunderProb
+            ? `, Precip ${b.precipProb}%, Thunder ${b.thunderProb}%`
+            : '';
+          lines.push(`${b.weather}${precip}`);
+        }
         hasWeather = true;
       }
     }
