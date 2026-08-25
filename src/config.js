@@ -113,6 +113,11 @@ export const config = {
     mapsApiKey: process.env.GOOGLE_MAPS_API_KEY || '',
   },
 
+  // Stormglass API(水温/潮流,按坐标直查,优先源)
+  stormglass: {
+    apiKey: process.env.STORMGLASS_API_KEY || '',
+  },
+
   // 无法从消息里检测语言时的兜底(纯坐标/位置消息、进程重启后的旧按钮)
   defaultLang: process.env.DEFAULT_LANG === 'zh' ? 'zh' : 'en',
 
