@@ -23,20 +23,6 @@ import { config } from '../../config.js';
 const API_BASE = 'https://api.stormglass.io/v2/weather/point';
 const PARAMS = 'waterTemperature,currentSpeed,currentDirection';
 
-// 内存缓存:key = "lat,lng" 四舍五入到 3 位(~100m 精度),value = { ts, data }
-const cache = new Map();
-const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 小时
-
-function cacheKey(lat, lng) {
-  return `${lat.toFixed(3)},${lng.toFixed(3)}`;
-}
-
-/** 清理过期缓存(每次调用时顺便扫一下) */
-function sweep() {
-  const cutoff = Date.now() - CACHE_TTL_MS;
-  for (const [k, v] of cache) if (v.ts < cutoff) cache.delete(k);
-}
-
 /** degC → degF */
 function cToF(v) {
   if (v == null) return null;
@@ -48,6 +34,8 @@ function msToKnots(v) {
   if (v == null) return null;
   return Math.round(v * 1.94384 * 100) / 100;
 }
+
+// 内存缓存已禁用:每次直接请求 Stormglass(免费 10 次/天,够用)
 
 /**
  * 从 Stormglass 获取水温和潮流数据。
@@ -64,44 +52,34 @@ export async function getStormglass(lat, lng, { mode = 'current', unitSystem = '
     return { available: false, source, reason: 'STORMGLASS_API_KEY not configured', errors };
   }
 
-  // 检查缓存
-  sweep();
-  const key = cacheKey(lat, lng);
-  const cached = cache.get(key);
   let hours;
 
-  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-    hours = cached.data;
-  } else {
-    // 请求 Stormglass API
-    const now = new Date();
-    const start = date ? `${date}T00:00:00Z` : now.toISOString();
-    const endDate = date ? new Date(`${date}T00:00:00Z`) : now;
-    const end = new Date(endDate.getTime() + 30 * 60 * 60 * 1000).toISOString(); // +30h 覆盖整天
+  // 请求 Stormglass API
+  const now = new Date();
+  const start = date ? `${date}T00:00:00Z` : now.toISOString();
+  const endDate = date ? new Date(`${date}T00:00:00Z`) : now;
+  const end = new Date(endDate.getTime() + 30 * 60 * 60 * 1000).toISOString(); // +30h 覆盖整天
 
-    const url = `${API_BASE}?lat=${lat}&lng=${lng}&params=${PARAMS}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&source=sg`;
+  const url = `${API_BASE}?lat=${lat}&lng=${lng}&params=${PARAMS}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&source=sg`;
 
-    try {
-      const res = await fetchWithTimeout(url, {
-        headers: { Authorization: apiKey },
-      });
-      if (res.status === 402 || res.status === 429) {
-        errors.push({ source, message: `API limit reached (HTTP ${res.status})` });
-        return { available: false, source, reason: `API limit (${res.status})`, errors };
-      }
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        errors.push({ source, message: `HTTP ${res.status}: ${text.slice(0, 200)}` });
-        return { available: false, source, reason: `HTTP ${res.status}`, errors };
-      }
-      const body = await res.json();
-      hours = body.hours || [];
-      // 存入缓存
-      cache.set(key, { ts: Date.now(), data: hours });
-    } catch (err) {
-      errors.push({ source, message: err.message });
-      return { available: false, source, reason: err.message, errors };
+  try {
+    const res = await fetchWithTimeout(url, {
+      headers: { Authorization: apiKey },
+    });
+    if (res.status === 402 || res.status === 429) {
+      errors.push({ source, message: `API limit reached (HTTP ${res.status})` });
+      return { available: false, source, reason: `API limit (${res.status})`, errors };
     }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      errors.push({ source, message: `HTTP ${res.status}: ${text.slice(0, 200)}` });
+      return { available: false, source, reason: `HTTP ${res.status}`, errors };
+    }
+    const body = await res.json();
+    hours = body.hours || [];
+  } catch (err) {
+    errors.push({ source, message: err.message });
+    return { available: false, source, reason: err.message, errors };
   }
 
   if (!hours.length) {
