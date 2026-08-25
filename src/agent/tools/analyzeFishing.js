@@ -87,7 +87,15 @@ function computeHourlyBlocks(hourly) {
     // 该时段内的最大降水/雷暴概率(同一批 entries,天然按日期隔离)
     const precipProb = Math.max(0, ...es.map((e) => e.precipitationProbability ?? 0));
     const thunderProb = Math.max(0, ...es.map((e) => e.thunderstormProbability ?? 0));
-    return { range: label, wind, airTemp, weather, waveHeight, wavePeriod, precipProb, thunderProb };
+    // 水温和潮流(Stormglass 逐小时)
+    const wTemps = es.map((e) => e.waterTemperature).filter((v) => v != null);
+    const waterTemp = wTemps.length ? `${fmtRange(Math.min(...wTemps), Math.max(...wTemps), 1)}°F` : null;
+    const cSpeeds = es.map((e) => e.tidalCurrentSpeed).filter((v) => v != null);
+    const cDirs = es.map((e) => e.tidalCurrentDirection).filter((v) => v != null);
+    const tidalCurrent = cSpeeds.length
+      ? `${fmtRange(Math.min(...cSpeeds), Math.max(...cSpeeds), 2)} kt${cDirs.length ? ` / ${Math.round(cDirs.reduce((a, b) => a + b, 0) / cDirs.length)}°` : ''}`
+      : null;
+    return { range: label, wind, airTemp, weather, waveHeight, wavePeriod, precipProb, thunderProb, waterTemp, tidalCurrent };
   });
 }
 
@@ -95,13 +103,13 @@ function computeHourlyBlocks(hourly) {
 const L = {
   zh: {
     currentTime: '当前时间', sunrise: '日出 / 日落', tides: '潮汐',
-    waterTemp: '水温', wind: '风速', airTemp: '气温', weather: '天气',
+    waterTemp: '水温', tidalCurrent: '潮流', wind: '风速', airTemp: '气温', weather: '天气',
     alerts: '警报', waveHeight: '浪高', wavePeriod: '浪周期',
     noData: '无数据', noAlerts: '无活动警报', nextHigh: '下一次高潮', nextLow: '下一次低潮',
   },
   en: {
     currentTime: 'Current Time', sunrise: 'Sunrise / Sunset', tides: 'Tides',
-    waterTemp: 'Water Temperature', wind: 'Wind Speed', airTemp: 'Air Temperature', weather: 'Weather',
+    waterTemp: 'Water Temperature', tidalCurrent: 'Tidal Current', wind: 'Wind Speed', airTemp: 'Air Temperature', weather: 'Weather',
     alerts: 'Alerts', waveHeight: 'Wave Height', wavePeriod: 'Wave Period',
     noData: 'No data', noAlerts: 'No active alerts', nextHigh: 'Next High', nextLow: 'Next Low',
   },
@@ -198,6 +206,9 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
     const ws = wind.speed != null ? fmtWind(wind.speed, wind.gust, wind.cardinal) : nd;
     lines.push(`${l.wind}: ${ws}`);
     lines.push(`${l.waterTemp}: ${wt != null ? `${wt}°F` : nd}`);
+    const tcs = cw.tidalCurrentSpeed;
+    const tcd = cw.tidalCurrentDirection;
+    lines.push(`${l.tidalCurrent}: ${tcs != null ? `${tcs} kt${tcd != null ? ` / ${tcd}°` : ''}` : nd}`);
     lines.push(`${l.waveHeight}: ${cw.waveHeight != null ? `${cw.waveHeight} ft` : nd}`);
     lines.push(`${l.wavePeriod}: ${cw.wavePeriod != null ? `${cw.wavePeriod} s` : nd}`);
   } else if (Array.isArray(hourlyBlocks) && hourlyBlocks.length) {
@@ -238,12 +249,13 @@ function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
       }
     }
     if (!hasWind) lines.push(`  ${nd}`);
-    lines.push(`${l.waterTemp}: ${nd}`); // prediction 模式不取实测水温
+    renderBlocksCompact(l.waterTemp, 'waterTemp');
+    renderBlocksCompact(l.tidalCurrent, 'tidalCurrent');
     renderBlocksCompact(l.waveHeight, 'waveHeight');
     renderBlocksCompact(l.wavePeriod, 'wavePeriod');
   } else {
     // prediction 但逐小时为空(如 NWS 失败 / 交集为空)→ 明确打印"无数据",避免看起来像报告被截断
-    for (const label of [l.airTemp, l.weather, l.wind, l.waterTemp, l.waveHeight, l.wavePeriod]) {
+    for (const label of [l.airTemp, l.weather, l.wind, l.waterTemp, l.tidalCurrent, l.waveHeight, l.wavePeriod]) {
       lines.push(`${label}: ${nd}`);
     }
   }

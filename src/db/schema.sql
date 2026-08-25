@@ -10,10 +10,6 @@ CREATE TABLE IF NOT EXISTS coordinates (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 迁移：已存在的表补新列（幂等，CREATE TABLE IF NOT EXISTS 对旧表是 no-op）
-ALTER TABLE coordinates ADD COLUMN IF NOT EXISTS state    TEXT;
-ALTER TABLE coordinates ADD COLUMN IF NOT EXISTS distance DOUBLE PRECISION;
-
 -- 名称唯一，避免重复添加同一钓点
 CREATE UNIQUE INDEX IF NOT EXISTS coordinates_name_uidx
   ON coordinates (lower(name));
