@@ -408,7 +408,7 @@ export function startTelegram({ onMessage } = {}) {
       }
     }
 
-    // 有 spots 列表 → 发地图图片 + 字母标号列表 + 按钮
+    // 有 spots 列表 → 发地图图片 + 每个钓点单独发一条消息(信息+按钮)
     if (Array.isArray(r.spots) && r.spots.length) {
       const spots = r.spots.filter((s) => s && s.id != null && String(s.name || '').trim()).slice(0, 26);
       const labels = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -426,22 +426,22 @@ export function startTelegram({ onMessage } = {}) {
         }
       }
 
-      // 按钮：字母 + 名字
-      const buttons = spots.map((s, i) => [
-        { text: `${labels[i]}. ${s.name}`, callback_data: `spot_${s.id}_${effLang}` },
-      ]);
-      // 正文：字母标号列表 + 备注/距离
-      const listText = spots.map((s, i) => {
-        const lines = [`${labels[i]}. ${s.name}${s.state ? ` (${s.state})` : ''}`];
+      // 每个钓点：一条消息(信息文字) + 该钓点的按钮
+      for (let i = 0; i < spots.length; i++) {
+        const s = spots[i];
+        const lines = [`📍 ${labels[i]}. ${s.name}${s.state ? ` (${s.state})` : ''}`];
         if (s.note) lines.push(`   ${effLang === 'zh' ? '备注' : 'Note'}: ${s.note}`);
         const dist = [];
         if (s.distance != null) dist.push(`${s.distance} mi`);
         if (s.drivingDuration) dist.push(s.drivingDuration);
         if (dist.length) lines.push(`   ${dist.join(' | ')}`);
-        return lines.join('\n');
-      }).join('\n\n');
-      const extra = { reply_markup: JSON.stringify({ inline_keyboard: buttons }) };
-      await sendLongMessage(chatId, listText || '(无内容)', extra);
+        const text = lines.join('\n');
+        const button = [[{ text: `${labels[i]}. ${s.name}`, callback_data: `spot_${s.id}_${effLang}` }]];
+        const extra = { reply_markup: JSON.stringify({ inline_keyboard: button }) };
+        await sendMessage(chatId, text, extra);
+        // 小延迟防 Telegram 限流
+        if (i < spots.length - 1) await new Promise((resolve) => setTimeout(resolve, 55));
+      }
       return;
     }
 
