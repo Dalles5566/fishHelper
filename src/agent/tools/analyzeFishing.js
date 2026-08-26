@@ -82,7 +82,7 @@ export function computeHourlyBlocks(hourly) {
     }
     groups.get(key).entries.push(h);
   }
-  return order.map((key) => {
+  return order.slice(0, 8).map((key) => {
     const { label, entries: es } = groups.get(key);
     const range = label;
     const speeds = es.map((e) => e.windSpeed).filter((v) => v != null);
@@ -126,13 +126,13 @@ const L = {
   zh: {
     currentTime: '当前时间', sunrise: '日出 / 日落', tides: '潮汐',
     waterTemp: '水温', tidalCurrent: '潮流', wind: '风速', airTemp: '气温', weather: '天气',
-    alerts: '⚠️⚠️⚠️警报⚠️⚠️⚠️', wave: '浪高/浪周期',
+    alerts: '⚠️⚠️⚠️警报⚠️⚠️⚠️', wave: '浪高/浪周期', waveHeight: '浪高', wavePeriod: '浪周期',
     noData: '无数据', noAlerts: '无活动警报', nextHigh: '下一次高潮', nextLow: '下一次低潮',
   },
   en: {
     currentTime: 'Current Time', sunrise: 'Sunrise / Sunset', tides: 'Tides',
     waterTemp: 'Water Temperature', tidalCurrent: 'Tidal Current', wind: 'Wind Speed', airTemp: 'Air Temperature', weather: 'Weather',
-    alerts: '⚠️⚠️⚠️Alerts⚠️⚠️⚠️', wave: 'Wave Height/Period',
+    alerts: '⚠️⚠️⚠️Alerts⚠️⚠️⚠️', wave: 'Wave Height/Period', waveHeight: 'Wave Height', wavePeriod: 'Wave Period',
     noData: 'No data', noAlerts: 'No active alerts', nextHigh: 'Next High', nextLow: 'Next Low',
   },
 };
@@ -245,63 +245,45 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
     const wp = cw.wavePeriod != null ? `${cw.wavePeriod} s` : nd;
     lines.push(`${l.wave}: ${wh} | ${wp}`);
   } else if (Array.isArray(hourlyBlocks) && hourlyBlocks.length) {
-    // Prediction: 3h blocks
-    // 顺序: 气温+天气+水温(合并) → 风速 → 潮流 → 浪高/浪周期
-    // 气温+天气+水温合并: 时间 | 温度 换行 水温 换行 天气信息
-    lines.push(`${l.weather}:`);
-    let hasWeather = false;
+    // Prediction: 每个时间块按统一格式输出全部字段
     for (const b of hourlyBlocks) {
-      if (b.airTemp || b.weather || b.waterTemp) {
-        const tempPart = b.airTemp || nd;
-        lines.push(`■■■${b.range} | ${tempPart}■■■`);
-        if (b.waterTemp) {
-          lines.push(`💧🌡️${l.waterTemp}: ${b.waterTemp}💧🌡️`);
-        }
-        if (b.weather) {
-          const precip = b.precipProb || b.thunderProb
-            ? `, 🌧️ ${b.precipProb}%, ⚡ ${b.thunderProb}%`
-            : '';
-          lines.push(`${b.weather}${precip}`);
-        }
-        hasWeather = true;
+      const hasData = b.airTemp || b.weather || b.waterTemp || b.wind || b.tidalCurrent || b.waveHeight || b.wavePeriod;
+      if (!hasData) continue;
+      // 时间段头
+      lines.push(`■■■■■■■■${b.range}■■■■■■■■`);
+      // 气温
+      if (b.airTemp) {
+        lines.push(`🌡️🌡️${l.airTemp}: ${b.airTemp}🌡️🌡️`);
       }
-    }
-    if (!hasWeather) lines.push(`  ${nd}`);
-    // 风速
-    lines.push(`${l.wind}:`);
-    let hasWind = false;
-    for (const b of hourlyBlocks) {
+      // 水温
+      if (b.waterTemp) {
+        lines.push(`💧🌡️${l.waterTemp}: ${b.waterTemp}💧🌡️`);
+      }
+      // 天气
+      if (b.weather) {
+        const precip = b.precipProb || b.thunderProb
+          ? `, 🌧️ ${b.precipProb}%, ⚡ ${b.thunderProb}%`
+          : '';
+        lines.push(`${b.weather}${precip}`);
+      }
+      // 风速
       if (b.wind) {
-        lines.push(`  ${b.range} | ${b.wind}`);
-        hasWind = true;
+        lines.push(`${l.wind}    | ${b.wind}`);
       }
-    }
-    if (!hasWind) lines.push(`  ${nd}`);
-    // 潮流:加方位词
-    lines.push(`${l.tidalCurrent}:`);
-    let hasCurrent = false;
-    for (const b of hourlyBlocks) {
+      // 潮流
       if (b.tidalCurrent) {
-        // tidalCurrent 已是 "0.25-0.31 kt / 267°" 格式,需要加方位词
         const m = b.tidalCurrent.match(/\/\s*(\d+)°/);
         const cardinal = m ? ` ${degToCardinal(Number(m[1]))}` : '';
-        lines.push(`  ${b.range} | ${b.tidalCurrent}${cardinal}`);
-        hasCurrent = true;
+        lines.push(`${l.tidalCurrent}    | ${b.tidalCurrent}${cardinal}`);
+      }
+      // 浪高 / 浪周期 分两行
+      if (b.waveHeight) {
+        lines.push(`${l.waveHeight}    | ${b.waveHeight}`);
+      }
+      if (b.wavePeriod) {
+        lines.push(`${l.wavePeriod} | ${b.wavePeriod}`);
       }
     }
-    if (!hasCurrent) lines.push(`  ${nd}`);
-    // 浪高/浪周期合并为一行
-    lines.push(`${l.wave}:`);
-    let hasWave = false;
-    for (const b of hourlyBlocks) {
-      if (b.waveHeight || b.wavePeriod) {
-        const wh = b.waveHeight || nd;
-        const wp = b.wavePeriod || nd;
-        lines.push(`  ${b.range} | ${wh} | ${wp}`);
-        hasWave = true;
-      }
-    }
-    if (!hasWave) lines.push(`  ${nd}`);
   } else {
     // prediction 但逐小时为空(如 NWS 失败 / 交集为空)→ 明确打印"无数据",避免看起来像报告被截断
     for (const label of [l.airTemp, l.weather, l.wind, l.waterTemp, l.tidalCurrent, l.wave]) {
