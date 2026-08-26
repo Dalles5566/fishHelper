@@ -113,9 +113,13 @@ export const config = {
     mapsApiKey: process.env.GOOGLE_MAPS_API_KEY || '',
   },
 
-  // Stormglass API(水温/潮流,按坐标直查,优先源)
+  // Stormglass API(水温/潮流/浪,按坐标直查,优先源)
+  // 多 key 轮换:逗号分隔,429/402 时自动切下一个
   stormglass: {
-    apiKey: process.env.STORMGLASS_API_KEY || '',
+    apiKeys: (process.env.STORMGLASS_API_KEYS || process.env.STORMGLASS_API_KEY || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
   },
 
   // 无法从消息里检测语言时的兜底(纯坐标/位置消息、进程重启后的旧按钮)

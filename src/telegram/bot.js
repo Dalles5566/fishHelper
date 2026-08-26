@@ -196,7 +196,7 @@ export function startTelegram({ onMessage } = {}) {
           const queryText = lang === 'zh'
             ? `查询${spot.name} ${coordStr}今天状况`
             : `Check today's condition at ${spot.name} ${coordStr}`;
-          // 回显构造的查询文本,方便调试
+          // 回显构造的查询文本，让用户知道正在查询什么
           await sendMessage(cbChatId, `🤖 → ${queryText}`).catch(() => {});
           const result = await onMessage({ text: queryText, userId: username || uid, chatId: String(cbChatId), isAdmin: adminFlag, lang });
           await sendReply(cbChatId, result, lang);
@@ -271,7 +271,7 @@ export function startTelegram({ onMessage } = {}) {
       }
 
       try {
-        // 回显构造的查询文本,方便调试
+        // 回显构造的查询文本，让用户知道正在查询什么
         await sendMessage(cbChatId, `🤖 → ${queryText}`).catch(() => {});
         const result = await onMessage({ text: queryText, userId: username || uid, chatId: String(cbChatId), isAdmin: adminFlag, lang });
         await sendReply(cbChatId, result, lang);
@@ -365,7 +365,7 @@ export function startTelegram({ onMessage } = {}) {
 
       call('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {});
       try {
-        // 回显构造的查询文本,方便调试
+        // 回显构造的添加钓点文本，让用户知道正在执行什么
         await sendMessage(chatId, `🤖 → ${addText}`).catch(() => {});
         const result = await onMessage({ text: addText, userId: who, chatId: String(chatId), isAdmin: adminFlag, lang: pending.lang });
         await sendReply(chatId, result, pending.lang);

@@ -113,6 +113,18 @@ function expandSeries(series, conv = (v) => v) {
   return map;
 }
 
+export function selectForecastPeriods(periods, { date = null, hours = DEFAULT_HOURS } = {}) {
+  const safePeriods = Array.isArray(periods) ? periods : [];
+  if (date) {
+    // 指定日期必须严格匹配；无匹配就返回空，绝不能拿今天的数据冒充目标日。
+    return safePeriods.filter(
+      (period) => typeof period.startTime === 'string' && period.startTime.slice(0, 10) === date
+    );
+  }
+  const limit = Number.isInteger(hours) && hours > 0 ? Math.min(hours, 168) : DEFAULT_HOURS;
+  return safePeriods.slice(0, limit);
+}
+
 const MARINE_EVENT_RE = /marine|small craft|hazardous seas|gale|storm warning|rip current|surf|beach|coastal/i;
 
 export async function getNationalWeatherService(
@@ -122,10 +134,22 @@ export async function getNationalWeatherService(
 ) {
   const source = 'NWS';
   const errors = [];
-  const units = UNIT_MAP[unitSystem] ? unitSystem : 'english';
+  const units = unitSystem;
   const isEnglish = units === 'english';
 
   try {
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90) throw new RangeError('latitude must be between -90 and 90');
+    if (!Number.isFinite(lng) || lng < -180 || lng > 180) throw new RangeError('longitude must be between -180 and 180');
+    if (mode !== 'current' && mode !== 'prediction') throw new TypeError("mode must be 'current' or 'prediction'");
+    if (!UNIT_MAP[units]) throw new TypeError("unitSystem must be 'english' or 'metric'");
+    if (date != null) {
+      if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new TypeError('date must use YYYY-MM-DD format');
+      const parsedDate = new Date(`${date}T00:00:00Z`);
+      if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date) {
+        throw new RangeError(`invalid calendar date: ${date}`);
+      }
+    }
+
     // NWS 坐标精度上限 4 位小数
     const rlat = round(lat, 4);
     const rlng = round(lng, 4);
@@ -210,12 +234,9 @@ export async function getNationalWeatherService(
         // 预测模式:
         //   date 指定(未来某天)→ 过滤到该【本地日期】的整天(startTime 带本地偏移,slice(0,10)=本地日期)
         //   未指定(今天/现在)→ 从现在起 hours 条(滚动窗口)
-        let sel;
-        if (date) {
-          sel = periods.filter((it) => typeof it.startTime === 'string' && it.startTime.slice(0, 10) === date);
-          if (!sel.length) sel = periods.slice(0, hours); // 兜底:该日期无匹配(如超出预报范围)
-        } else {
-          sel = periods.slice(0, hours);
+        const sel = selectForecastPeriods(periods, { date, hours });
+        if (date && sel.length === 0) {
+          errors.push({ step: 'forecastHourly-date', message: `No hourly forecast available for ${date}` });
         }
         result.prediction = { hourly: sel.map(buildEntry) };
       }
