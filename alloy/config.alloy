@@ -1,0 +1,73 @@
+// ============================================================================
+// Grafana Alloy 配置 —— 采集 Docker 容器日志并推送到 Grafana Cloud Loki
+// ----------------------------------------------------------------------------
+// 与 Grafana 向导默认给的"系统日志(journal/var/log)"不同,这里采集的是
+// Docker 容器的 stdout/stderr(fishHelper 的 console.log 就打在这里)。
+//
+// 凭据来自环境变量(不硬编码 token,由 docker-compose 从 .env 注入):
+//   GCLOUD_LOGS_URL   Loki push URL
+//   GCLOUD_LOGS_USER  Loki 用户名(数字 ID)
+//   GCLOUD_LOGS_TOKEN Grafana Cloud API token(glc_...)
+//
+// 数据流:
+//   discovery.docker  发现宿主机上所有运行中的容器
+//   → discovery.relabel  只保留 fishhelper-* 容器,并把容器名/镜像转成标签
+//   → loki.source.docker  读取这些容器的日志
+//   → loki.write  推送到 Grafana Cloud Loki
+// ============================================================================
+
+// ---- 1. 发现宿主机上的 Docker 容器 ----
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+// ---- 2. 只保留 fishHelper 相关容器,并整理标签 ----
+discovery.relabel "fishhelper" {
+  targets = discovery.docker.containers.targets
+
+  // 只采集容器名以 "fishhelper" 开头的(app / pg),其余容器丢弃
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(fishhelper.*)"
+    action        = "keep"
+  }
+
+  // 容器名 → container 标签(去掉开头的 "/")
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  // 固定 job 标签,方便在 Grafana 里按 job 查询
+  rule {
+    target_label = "job"
+    replacement  = "fishhelper"
+  }
+
+  // 主机名,便于将来多台机器区分
+  rule {
+    target_label = "host"
+    replacement  = constants.hostname
+  }
+}
+
+// ---- 3. 读取这些容器的日志 ----
+loki.source.docker "fishhelper" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.fishhelper.output
+  labels     = { platform = "docker" }
+  forward_to = [loki.write.grafana_cloud.receiver]
+}
+
+// ---- 4. 推送到 Grafana Cloud Loki ----
+loki.write "grafana_cloud" {
+  endpoint {
+    url = sys.env("GCLOUD_LOGS_URL")
+
+    basic_auth {
+      username = sys.env("GCLOUD_LOGS_USER")
+      password = sys.env("GCLOUD_LOGS_TOKEN")
+    }
+  }
+}

@@ -63,10 +63,14 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
 
-      - name: 同步 docker-compose.yml 到服务器
+      - name: 同步 docker-compose.yml 与 alloy 配置到服务器
         run: |
           scp -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes docker-compose.yml \
             "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/root/fishHelper/docker-compose.yml"
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" 'mkdir -p /root/fishHelper/alloy'
+          scp -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes alloy/config.alloy \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/root/fishHelper/alloy/config.alloy"
 
       - name: 服务器登录 GHCR + 拉镜像 + 重启
         run: |

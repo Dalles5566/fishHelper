@@ -40,5 +40,24 @@ services:
       # 覆盖 .env 里的 DATABASE_URL:容器内走内部网络连 db 服务(不用宿主机端口)
       DATABASE_URL: postgres://${POSTGRES_USER:-fishhelper}:${POSTGRES_PASSWORD:-fishhelper}@db:5432/${POSTGRES_DB:-fishhelper}
 
+  # Grafana Alloy —— 采集 fishHelper 容器日志,推送到 Grafana Cloud Loki
+  # 只在 .env 配了 GCLOUD_LOGS_* 时才有意义;配置见 alloy/config.alloy
+  alloy:
+    image: grafana/alloy:latest
+    container_name: fishhelper-alloy
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - /etc/alloy/config.alloy
+    environment:
+      GCLOUD_LOGS_URL: ${GCLOUD_LOGS_URL}
+      GCLOUD_LOGS_USER: ${GCLOUD_LOGS_USER}
+      GCLOUD_LOGS_TOKEN: ${GCLOUD_LOGS_TOKEN}
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # 只读挂载 Docker socket:Alloy 借此发现并读取其他容器的日志
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
 volumes:
   fishhelper_pgdata: # 专属数据卷,独立于其他项目

@@ -43,9 +43,13 @@ function todayUTC() {
 function maybeResetDaily() {
   const today = todayUTC();
   if (today !== lastResetDay) {
+    const hadExhausted = exhaustedSet.size;
     exhaustedSet.clear();
     cooldownUntil.clear();
     lastResetDay = today;
+    if (hadExhausted) {
+      console.log(`[stormglass] 新的一天 (${today})，重置 ${hadExhausted} 个已耗尽 key 的配额记录`);
+    }
   }
 }
 
@@ -95,6 +99,7 @@ async function fetchWithKeyRotation(url, errors) {
   syncKeyConfiguration(keys);
 
   if (!keys.length) {
+    console.warn('[stormglass] 未配置 STORMGLASS_API_KEYS，跳过 Stormglass，改用 CO-OPS/NDBC 兜底');
     errors.push({ source: 'Stormglass', message: 'STORMGLASS_API_KEYS not configured' });
     return null;
   }
@@ -113,6 +118,8 @@ async function fetchWithKeyRotation(url, errors) {
 
       if (res.status === 402) {
         exhaustedSet.add(index);
+        const msg = `Key #${index + 1}/${keys.length} 今日配额耗尽 (HTTP 402)，切换下一个 key`;
+        console.warn(`[stormglass] ${msg}`);
         errors.push({ source: 'Stormglass', message: `Key #${index + 1} daily quota exhausted (HTTP 402)` });
         continue;
       }
@@ -120,30 +127,40 @@ async function fetchWithKeyRotation(url, errors) {
       if (res.status === 429) {
         const waitMs = retryAfterMs(res);
         cooldownUntil.set(index, Date.now() + waitMs);
+        const msg = `Key #${index + 1}/${keys.length} 被限流，冷却 ${Math.ceil(waitMs / 1000)}s 后重试，切换下一个 key`;
+        console.warn(`[stormglass] ${msg}`);
         errors.push({ source: 'Stormglass', message: `Key #${index + 1} rate limited; retry after ${Math.ceil(waitMs / 1000)}s` });
         continue;
       }
 
       if (res.status === 403) {
         invalidSet.add(index);
+        const msg = `Key #${index + 1}/${keys.length} 无效/过期 (HTTP 403)，本进程内禁用该 key`;
+        console.warn(`[stormglass] ${msg}`);
         errors.push({ source: 'Stormglass', message: `Key #${index + 1} returned 403 (invalid/expired)` });
         continue;
       }
 
       if (!res.ok) {
         const text = await res.text().catch(() => '');
+        console.error(`[stormglass] Key #${index + 1} 请求失败 HTTP ${res.status}，放弃`);
         errors.push({ source: 'Stormglass', message: `HTTP ${res.status}: ${text.slice(0, 200)}` });
         return null;
       }
 
       try {
-        return await res.json();
+        const body = await res.json();
+        if (index !== 0) console.log(`[stormglass] 使用 Key #${index + 1}/${keys.length} 请求成功`);
+        return body;
       } catch (err) {
+        console.error(`[stormglass] Key #${index + 1} 返回非法 JSON: ${err.message}`);
         errors.push({ source: 'Stormglass', message: `Invalid JSON response: ${err.message}` });
         return null;
       }
     } catch (err) {
-      errors.push({ source: 'Stormglass', message: err instanceof Error ? err.message : String(err) });
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[stormglass] Key #${index + 1} 网络/超时错误: ${message}`);
+      errors.push({ source: 'Stormglass', message });
       return null;
     } finally {
       const remaining = Math.max(0, (inFlight.get(index) || 1) - 1);
@@ -155,6 +172,7 @@ async function fetchWithKeyRotation(url, errors) {
   const state = exhaustedSet.size >= keys.length
     ? `所有 ${keys.length} 个 API key 今日配额均已耗尽`
     : '当前没有可用 API key（限流冷却或 key 无效）';
+  console.warn(`[stormglass] ${state}，本次改用 CO-OPS/NDBC 兜底`);
   errors.push({ source: 'Stormglass', message: state });
   return null;
 }
@@ -267,12 +285,18 @@ export async function getStormglass(lat, lng, { mode = 'current', unitSystem = '
     end: endDate.toISOString(),
     source: 'sg',
   });
+  const coordStr = `${lat},${lng}`;
+  console.log(`[stormglass] 请求 ${mode} ${coordStr}${date ? ` date=${date}` : ''}`);
+  const startedAt = Date.now();
   const body = await fetchWithKeyRotation(`${API_BASE}?${query}`, errors);
+  const elapsedMs = Date.now() - startedAt;
 
   if (!body) {
+    console.warn(`[stormglass] ${mode} ${coordStr} 无返回 (${elapsedMs}ms): ${errors.at(-1)?.message || 'request failed'}`);
     return { available: false, source, reason: errors.at(-1)?.message || 'request failed', errors };
   }
   if (!Array.isArray(body.hours)) {
+    console.warn(`[stormglass] ${mode} ${coordStr} 响应异常: hours 不是数组`);
     errors.push({ source, message: 'Invalid response: hours must be an array' });
     return { available: false, source, reason: 'Invalid hours response', errors };
   }
@@ -282,8 +306,10 @@ export async function getStormglass(lat, lng, { mode = 'current', unitSystem = '
     .map((hour) => normalizeHour(hour, isEnglish))
     .filter((hour) => hasMarineData(hour));
   if (!hourly.length) {
+    console.warn(`[stormglass] ${mode} ${coordStr} 无可用海洋数据 (${elapsedMs}ms)`);
     return { available: false, source, reason: 'No usable marine data returned', errors };
   }
+  console.log(`[stormglass] ${mode} ${coordStr} 成功，${hourly.length} 小时数据 (${elapsedMs}ms)`);
 
   if (mode === 'current') {
     const nowMs = Date.now();

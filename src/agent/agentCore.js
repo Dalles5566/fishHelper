@@ -35,25 +35,34 @@ export async function runAgent(userText, { history = [], isAdmin = false, lang: 
   const text = String(userText ?? '').trim();
   // 传输层已知语言时(如按钮回调:用户上一条消息的语言)直接用,避免从措辞里再检测一次
   const lang = langOverride || detectLang(text);
+  const startedAt = Date.now();
 
   // 第 1 步:轻量意图提取(不带工具 schema、极短 prompt)。失败则直接走兜底
   let intent;
   try {
     intent = await extractIntent(text);
-  } catch {
+  } catch (err) {
+    console.warn(`[agent] 意图提取失败，转 function-calling 兜底: ${err?.message || err}`);
     intent = null;
   }
+  console.log(`[agent] 意图=${intent?.type || 'unknown'}${intent?.spot ? ` spot="${intent.spot}"` : ''}${intent?.mode ? ` mode=${intent.mode}` : ''}${intent?.date ? ` date=${intent.date}` : ''} lang=${lang}`);
 
   // 快捷管道:钓鱼判断类(最常见)→ 代码固定跑 查坐标 → 取海况 → 分析,不再回 LLM 选工具
   if (intent && intent.type === 'analyze') {
     const fast = await runAnalyzeFast(intent, lang);
-    if (fast) return fast;
+    if (fast) {
+      console.log(`[agent] 快捷管道完成 (${Date.now() - startedAt}ms)`);
+      return fast;
+    }
+    console.log('[agent] 快捷管道未命中，转 function-calling 兜底');
     // 未命中(没解析到坐标 / 多个同名候选 / 出错)→ 落到下面的 function-calling 兜底
   }
 
   // 兜底:其它操作(列钓点 / 加钓点 / 闲聊 / 只要原始数据)或快捷管道未命中 → 原 function-calling 循环
   // 把 intent(已含 mode/date/spot)传进去,兜底直接用,不再重复推导 mode
-  return runToolLoop(text, { history, isAdmin, lang, intent });
+  const out = await runToolLoop(text, { history, isAdmin, lang, intent });
+  console.log(`[agent] function-calling 完成 (${Date.now() - startedAt}ms)`);
+  return out;
 }
 
 // ============================================================================
