@@ -19,6 +19,7 @@
     "discord.js": "^14.27.0",
     "openai": "^4.67.3",
     "pg": "^8.13.0",
+    "redis": "^4.7.1",
     "suncalc": "^2.0.1"
   },
   "license": "MIT",

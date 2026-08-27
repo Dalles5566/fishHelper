@@ -114,12 +114,19 @@ export const config = {
   },
 
   // Stormglass API(水温/潮流/浪,按坐标直查,优先源)
-  // 多 key 轮换:逗号分隔,429/402 时自动切下一个
+  // 多 key 顺序耗尽:Key #1 用满/402 才用 #2，配额状态存 Redis
   stormglass: {
     apiKeys: (process.env.STORMGLASS_API_KEYS || process.env.STORMGLASS_API_KEY || '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+    // 每个 key 每天的免费请求上限(达到即视为不可用)
+    dailyLimit: Number(process.env.STORMGLASS_DAILY_LIMIT || 10),
+  },
+
+  // Redis:存 Stormglass 各 key 的每日配额状态(进程重启后仍保留;每日美东午夜过期重置)
+  redis: {
+    url: process.env.REDIS_URL || 'redis://localhost:6379',
   },
 
   // 无法从消息里检测语言时的兜底(纯坐标/位置消息、进程重启后的旧按钮)

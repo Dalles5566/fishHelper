@@ -27,6 +27,20 @@ services:
       timeout: 5s
       retries: 10
 
+  # Redis —— 存 Stormglass 各 key 的每日配额状态(顺序耗尽 + 每日美东午夜重置)
+  redis:
+    image: redis:7-alpine
+    container_name: fishhelper-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"] # 持久化,重启不丢配额状态
+    volumes:
+      - fishhelper_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   app:
     image: ghcr.io/dalles5566/fishhelper:latest
     container_name: fishhelper-app
@@ -34,11 +48,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env # WeCom / OpenAI / NWS 等凭据
     environment:
       # 覆盖 .env 里的 DATABASE_URL:容器内走内部网络连 db 服务(不用宿主机端口)
       DATABASE_URL: postgres://${POSTGRES_USER:-fishhelper}:${POSTGRES_PASSWORD:-fishhelper}@db:5432/${POSTGRES_DB:-fishhelper}
+      # 容器内走内部网络连 redis 服务
+      REDIS_URL: redis://redis:6379
 
   # Grafana Alloy —— 采集 fishHelper 容器日志,推送到 Grafana Cloud Loki
   # 只在 .env 配了 GCLOUD_LOGS_* 时才有意义;配置见 alloy/config.alloy
@@ -61,3 +79,4 @@ services:
 
 volumes:
   fishhelper_pgdata: # 专属数据卷,独立于其他项目
+  fishhelper_redisdata: # Redis 持久化(Stormglass 配额状态)

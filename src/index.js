@@ -10,6 +10,7 @@ import { startTelegram } from './telegram/bot.js';
 import { startDiscord } from './discord/bot.js';
 import { runAgent } from './agent/agentCore.js';
 import { pool } from './db/pool.js';
+import { closeRedis } from './db/redis.js';
 
 function main() {
   // 缺关键配置(botId/secret/OpenAI key/DB)时早失败,给清晰报错
@@ -74,6 +75,11 @@ function main() {
       await pool.end();
     } catch (err) {
       console.error('[fishHelper] 关闭连接池出错:', err?.message || err);
+    }
+    try {
+      await closeRedis();
+    } catch (err) {
+      console.error('[fishHelper] 关闭 Redis 出错:', err?.message || err);
     }
     process.exit(0);
   }
