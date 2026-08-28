@@ -94,7 +94,11 @@ export function computeHourlyBlocks(hourly) {
     const range = label;
     const speeds = es.map((e) => e.windSpeed).filter((v) => v != null);
     const temps = es.map((e) => e.temperature).filter((v) => v != null);
-    const dirs = [...new Set(es.map((e) => e.windDirection).filter(Boolean))];
+    const windDirs = es
+      .map((e) => e.windDirection)
+      .filter((value) => value != null && value !== '')
+      .map(Number)
+      .filter(Number.isFinite);
     const waves = es.map((e) => e.waveHeight).filter((v) => v != null);
     const periods = es.map((e) => e.wavePeriod).filter((v) => v != null);
     const freq = new Map();
@@ -102,7 +106,8 @@ export function computeHourlyBlocks(hourly) {
     const weather = [...freq.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
     const spd = speeds.length ? fmtRange(Math.min(...speeds), Math.max(...speeds), 1) : null;
     const spdMph = speeds.length ? fmtRange(ktToMph(Math.min(...speeds)), ktToMph(Math.max(...speeds))) : null;
-    const wind = spd ? `${spd} kt (${spdMph} mph)${dirs.length ? ' ' + dirs.join('/') : ''}` : dirs.join('/') || null;
+    const windCardinal = degToCardinal(circularMeanDegrees(windDirs)); // 时段风向取圆周平均 → 方位词
+    const wind = spd ? `${spd} kt (${spdMph} mph)${windCardinal ? ' ' + windCardinal : ''}` : windCardinal || null;
     const airTemp = temps.length
       ? `${fmtRange(Math.min(...temps), Math.max(...temps))}°F (${fmtRange(fToC(Math.min(...temps)), fToC(Math.max(...temps)))}°C)`
       : null;
@@ -138,7 +143,7 @@ const L = {
   },
   en: {
     currentTime: 'Current Time', sunrise: 'Sunrise / Sunset', tides: 'Tides',
-    waterTemp: 'Water Temperature', tidalCurrent: 'Tidal Current', wind: 'Wind Speed', airTemp: 'Air Temperature', weather: 'Weather',
+    waterTemp: 'Water Temp', tidalCurrent: 'Tidal Current', wind: 'Wind Speed', airTemp: 'Air Temp', weather: 'Weather',
     alerts: '⚠️⚠️⚠️Alerts⚠️⚠️⚠️', wave: 'Wave Height/Period', waveHeight: 'Wave Height', wavePeriod: 'Wave Period',
     noData: 'No data', noAlerts: 'No active alerts', nextHigh: 'Next High', nextLow: 'Next Low',
   },
@@ -266,12 +271,12 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
       if (b.waterTemp) {
         lines.push(`💧🌡️${l.waterTemp}: ${b.waterTemp}💧🌡️`);
       }
-      // 天气
+      // 天气(描述一行,降雨/雷暴概率另起一行)
       if (b.weather) {
-        const precip = b.precipProb || b.thunderProb
-          ? `, 🌧️ ${b.precipProb}%, ⚡ ${b.thunderProb}%`
-          : '';
-        lines.push(`${b.weather}${precip}`);
+        lines.push(`${b.weather}`);
+        if (b.precipProb || b.thunderProb) {
+          lines.push(`🌧️ ${b.precipProb}%, ⚡ ${b.thunderProb}%`);
+        }
       }
       // 风速
       if (b.wind) {
