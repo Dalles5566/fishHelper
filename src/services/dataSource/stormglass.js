@@ -27,7 +27,7 @@ import { config } from '../../config.js';
 import { selectAvailableKey, recordSuccess, markExhausted } from './stormglassKeys.js';
 
 const API_BASE = 'https://api.stormglass.io/v2/weather/point';
-const PARAMS = 'waterTemperature,currentSpeed,currentDirection,waveHeight,wavePeriod,waveDirection';
+const PARAMS = 'waterTemperature,currentSpeed,currentDirection,waveHeight,wavePeriod,waveDirection,airTemperature,windSpeed,windDirection,gust,pressure';
 
 // ── Key 轮换状态 ──
 // 配额状态(used/402 耗尽)存 Redis,见 stormglassKeys.js;每日美东午夜自动重置。
@@ -166,6 +166,12 @@ function normalizeHour(hour, isEnglish) {
   const wh = numberOrNull(hour?.waveHeight?.sg);
   const wp = numberOrNull(hour?.wavePeriod?.sg);
   const wd = numberOrNull(hour?.waveDirection?.sg);
+  // 气象:气温、风速、风向、阵风、气压
+  const at = numberOrNull(hour?.airTemperature?.sg);
+  const ws = numberOrNull(hour?.windSpeed?.sg);
+  const wdir = numberOrNull(hour?.windDirection?.sg);
+  const gust = numberOrNull(hour?.gust?.sg);
+  const pressure = numberOrNull(hour?.pressure?.sg);
   return {
     time: hour.time,
     waterTemperature: isEnglish ? cToF(wt) : wt,
@@ -174,6 +180,11 @@ function normalizeHour(hour, isEnglish) {
     waveHeight: isEnglish ? mToFt(wh) : wh,
     wavePeriod: wp,
     waveDirection: wd,
+    airTemperature: isEnglish ? cToF(at) : at,
+    windSpeed: isEnglish ? msToKnots(ws) : ws,
+    windDirection: wdir,
+    windGust: isEnglish ? msToKnots(gust) : gust,
+    pressure, // hPa,两种单位口径都用 hPa
   };
 }
 
@@ -185,13 +196,18 @@ function hasMarineData(hour) {
     hour.waveHeight,
     hour.wavePeriod,
     hour.waveDirection,
+    hour.airTemperature,
+    hour.windSpeed,
+    hour.windDirection,
+    hour.windGust,
+    hour.pressure,
   ].some((value) => value != null);
 }
 
 function unitsFor(isEnglish) {
   return isEnglish
-    ? { waterTemperature: 'degF', currentSpeed: 'knots', currentDirection: 'deg', waveHeight: 'ft', wavePeriod: 's', waveDirection: 'deg' }
-    : { waterTemperature: 'degC', currentSpeed: 'm/s', currentDirection: 'deg', waveHeight: 'm', wavePeriod: 's', waveDirection: 'deg' };
+    ? { waterTemperature: 'degF', currentSpeed: 'knots', currentDirection: 'deg', waveHeight: 'ft', wavePeriod: 's', waveDirection: 'deg', airTemperature: 'degF', windSpeed: 'knots', windDirection: 'deg', windGust: 'knots', pressure: 'hPa' }
+    : { waterTemperature: 'degC', currentSpeed: 'm/s', currentDirection: 'deg', waveHeight: 'm', wavePeriod: 's', waveDirection: 'deg', airTemperature: 'degC', windSpeed: 'm/s', windDirection: 'deg', windGust: 'm/s', pressure: 'hPa' };
 }
 
 /**

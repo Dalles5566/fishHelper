@@ -28,14 +28,8 @@ import { getAstronomy } from './dataSource/astronomy.js';
 import { getUsgsWaterData } from './dataSource/usgsWaterData.js';
 import { getNoaaBathymetry } from './dataSource/noaaBathymetry.js';
 import { getNationalWeatherService } from './dataSource/nationalWeatherService.js';
-import { getNoaaCoops } from './dataSource/noaaCoops.js';
-import { getNoaaNdbc } from './dataSource/noaaNdbc.js';
 import { getStormglass } from './dataSource/stormglass.js';
-import {
-  nearestCoopsTideStation,
-  nearestCoopsCurrentStation,
-  nearestNdbcStation,
-} from './stations.js';
+import { getWorldTides } from './dataSource/worldTides.js';
 
 export const DEFAULT_TIMEZONE = 'America/New_York';
 const MAX_FORECAST_DAYS = 7;
@@ -156,118 +150,57 @@ function buildCommon(astronomy, bathymetry, usgs, tz) {
   };
 }
 
-/** 取第一个非空值(coops 优先、源兜底的取值器)*/
-function pick(...vals) {
-  for (const v of vals) if (v != null) return v;
-  return null;
-}
-
-/**
- * nws 风速单位 → 统一口径:english=节(knots),metric=米/秒(m/s)。
- * nws 原生:english=mph,metric=km/h。coops 原生已是节/(m·s),无需换算。
- * 仅在 coops 缺、用 nws 兜底时调用,避免单位混用。
- */
-function nwsWindToCanon(v, unitSystem) {
-  if (v == null) return null;
-  const val = unitSystem === 'metric' ? v / 3.6 : v * 0.868976; // km/h→m/s / mph→knots
-  return Math.round(val * 100) / 100;
-}
-
 /**
  * 组装"现在"快照(拍平,来源见注释)。取值规则:
- *   风/温/阵风:coops 实测优先 → nws 兜底(风速已统一单位)
- *   水温:stormglass 优先 → coops → ndbc 兜底
- *   浪高/浪周期/浪向:每个字段独立 stormglass → nws → ndbc 兜底
- *   天气描述/降雨/雷暴/警报:仅 nws
+ *   气温/风/阵风/气压/水温/潮流/浪:Stormglass(无兜底)
+ *   潮位/高低潮:WorldTides
+ *   天气描述/降雨/雷暴/警报:仅 NWS
  * 时间转钓点本地时。
  */
-function coopsCurrentToCanon(v, unitSystem) {
-  if (v == null) return null;
-  return unitSystem === 'metric' ? Math.round((v / 100) * 100) / 100 : v; // cm/s → m/s
+/** 度数 → 方位词 (N/NE/E/SE/S/SW/W/NW);无效返回 null */
+function degToCardinal(deg) {
+  if (deg == null || !Number.isFinite(Number(deg))) return null;
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const normalized = ((Number(deg) % 360) + 360) % 360;
+  return dirs[Math.round(normalized / 45) % 8];
 }
 
-function selectWaveFields(sources) {
-  const select = (field) => {
-    for (const source of sources) {
-      if (source[field] != null) {
-        return { value: source[field], source: source.source, observedAt: source.observedAt ?? null };
-      }
-    }
-    return { value: null, source: null, observedAt: null };
-  };
+/** 从逐时潮位里取最接近当前时刻的一条 waterLevel。 */
+function nearestWaterLevel(hourly, now = Date.now()) {
+  if (!Array.isArray(hourly) || !hourly.length) return { level: null, time: null };
+  let best = null;
+  let bestDiff = Infinity;
+  for (const h of hourly) {
+    const t = Date.parse(h.time);
+    if (Number.isNaN(t) || h.waterLevel == null) continue;
+    const diff = Math.abs(t - now);
+    if (diff < bestDiff) { bestDiff = diff; best = h; }
+  }
+  return best ? { level: best.waterLevel, time: best.time } : { level: null, time: null };
+}
 
-  const height = select('height');
-  const period = select('period');
-  const direction = select('direction');
-  const selected = [height, period, direction].filter((field) => field.value != null);
-  const sourceNames = [...new Set(selected.map((field) => field.source))];
-  const observedTimes = [...new Set(selected.map((field) => field.observedAt).filter(Boolean))];
+function buildCurrent(worldTides, nws, stormglass, tz, unitSystem) {
+  const n = nws?.current || null; // nws 当前小时(天气/降雨/雷暴/警报)
+  const sg = stormglass?.current || null; // stormglass 水温/潮流/浪/气温/风/气压
+  const wl = nearestWaterLevel(worldTides?.prediction?.hourly);
 
   return {
-    height: height.value,
-    period: period.value,
-    direction: direction.value,
-    heightSource: height.source,
-    periodSource: period.source,
-    directionSource: direction.source,
-    heightObservedAt: height.observedAt,
-    periodObservedAt: period.observedAt,
-    directionObservedAt: direction.observedAt,
-    source: sourceNames.length === 1 ? sourceNames[0] : sourceNames.length > 1 ? 'Mixed' : null,
-    observedAt: observedTimes.length === 1 ? observedTimes[0] : null,
-  };
-}
+    observedAt: toLocal(sg?.time, tz) || toLocal(n?.time, tz),
 
-export function selectCurrentWave(stormglassCurrent, nwsCurrent, ndbc) {
-  return selectWaveFields([
-    {
-      height: stormglassCurrent?.waveHeight ?? null,
-      period: stormglassCurrent?.wavePeriod ?? null,
-      direction: stormglassCurrent?.waveDirection ?? null,
-      source: 'Stormglass',
-      observedAt: stormglassCurrent?.time ?? null,
-    },
-    {
-      height: nwsCurrent?.waveHeight ?? null,
-      period: nwsCurrent?.wavePeriod ?? null,
-      direction: nwsCurrent?.waveDirection ?? null,
-      source: 'NWS',
-      observedAt: nwsCurrent?.time ?? null,
-    },
-    {
-      height: ndbc?.waveHeight ?? null,
-      period: ndbc?.wavePeriod ?? null,
-      direction: ndbc?.waveDirection ?? null,
-      source: 'NOAA NDBC',
-      observedAt: ndbc?.observedAt ?? null,
-    },
-  ]);
-}
+    // ── 潮位(WorldTides,取最接近当前时刻)──
+    waterLevel: wl.level,
 
-function buildCurrent(coops, nws, ndbc, stormglass, tz, unitSystem) {
-  const c = coops?.current || null; // coops 实测快照
-  const n = nws?.current || null; // nws 当前小时
-  const w = c?.wind || null;
-  const sg = stormglass?.current || null; // stormglass 水温/潮流/海浪
-  const wave = selectCurrentWave(sg, n, ndbc);
+    // ── 温度(气温=stormglass;水温=stormglass)──
+    airTemp: sg?.airTemperature ?? null,
+    waterTemp: sg?.waterTemperature ?? null,
+    airPressure: sg?.pressure ?? null, // stormglass
 
-  return {
-    observedAt: toLocal(c?.time, tz) || toLocal(n?.time, tz) || toLocal(sg?.time, tz) || toLocal(ndbc?.observedAt, tz),
-
-    // ── 潮位(coops 实测,含气象余差)──
-    waterLevel: c?.waterLevel ?? null,
-
-    // ── 温度 ──
-    airTemp: pick(c?.airTemp, n?.temperature), // coops 实测 → nws 兜底
-    waterTemp: pick(sg?.waterTemperature, c?.waterTemp, ndbc?.seaSurfaceTemp), // stormglass → coops → ndbc
-    airPressure: c?.airPressure ?? null, // 仅 coops
-
-    // ── 风(coops 优先 → nws 兜底;speed/gust 统一单位)──
+    // ── 风(stormglass;cardinal 由度数换算)──
     wind: {
-      speed: pick(w?.speed, nwsWindToCanon(n?.windSpeed, unitSystem)),
-      direction: w?.direction ?? null, // 度数仅 coops
-      cardinal: pick(w?.cardinal, n?.windDirection), // 方位词
-      gust: pick(w?.gust, nwsWindToCanon(n?.windGust, unitSystem)),
+      speed: sg?.windSpeed ?? null,
+      direction: sg?.windDirection ?? null,
+      cardinal: degToCardinal(sg?.windDirection),
+      gust: sg?.windGust ?? null,
     },
 
     // ── 天气(仅 nws)──
@@ -275,22 +208,14 @@ function buildCurrent(coops, nws, ndbc, stormglass, tz, unitSystem) {
     precipitationProbability: n?.precipitationProbability ?? null,
     thunderstormProbability: n?.thunderstormProbability ?? null,
 
-    // ── 浪:每个字段独立 Stormglass → NWS → NDBC 兜底 ──
-    waveHeight: wave.height,
-    wavePeriod: wave.period,
-    waveDirection: wave.direction,
-    waveHeightSource: wave.heightSource,
-    wavePeriodSource: wave.periodSource,
-    waveDirectionSource: wave.directionSource,
-    waveHeightObservedAt: toLocal(wave.heightObservedAt, tz),
-    wavePeriodObservedAt: toLocal(wave.periodObservedAt, tz),
-    waveDirectionObservedAt: toLocal(wave.directionObservedAt, tz),
-    waveSource: wave.source,
-    waveObservedAt: toLocal(wave.observedAt, tz),
+    // ── 浪(仅 stormglass,无兜底)──
+    waveHeight: sg?.waveHeight ?? null,
+    wavePeriod: sg?.wavePeriod ?? null,
+    waveDirection: sg?.waveDirection ?? null,
 
-    // ── 潮流(stormglass 优先 → coops 兜底)──
-    tidalCurrentSpeed: pick(sg?.currentSpeed, coopsCurrentToCanon(c?.tidalCurrentSpeed, unitSystem)),
-    tidalCurrentDirection: pick(sg?.currentDirection, c?.tidalCurrentDirection),
+    // ── 潮流(仅 stormglass,无兜底)──
+    tidalCurrentSpeed: sg?.currentSpeed ?? null,
+    tidalCurrentDirection: sg?.currentDirection ?? null,
 
     // ── 警报(仅 nws)──
     alerts: nws?.alerts || [],
@@ -304,27 +229,14 @@ function buildCurrent(coops, nws, ndbc, stormglass, tz, unitSystem) {
 }
 
 /**
- * 把 coops.prediction 的高低潮极值整理成**按时间排序的事件清单**(而非 first/second 命名,避免歧义)。
+ * 把 WorldTides 的 extremes 整理成**按时间排序的事件清单**。
  * 返回 [{ type:'High'|'Low', time(本地), height }, ...],按时间升序。空则 []。
  * "下一次高潮" = 清单里 type='High' 且时间晚于当前时间的第一条(由分析层判断)。
  */
 function localizeExtremes(pred, tz, filterDate = null) {
-  let evs = [];
-  if (Array.isArray(pred?.extremes) && pred.extremes.length) {
-    // 首选 coops 返回的【全部】事件
-    evs = pred.extremes
-      .filter((e) => e && e.time)
-      .map((e) => ({ type: e.type, _utc: e.time, time: toLocal(e.time, tz), height: e.height }));
-  } else {
-    // 兜底:旧的 first/second 字段
-    const add = (e, type) => {
-      if (e && e.time) evs.push({ type, _utc: e.time, time: toLocal(e.time, tz), height: e.height });
-    };
-    add(pred?.firstHighTide, 'High');
-    add(pred?.secondHighTide, 'High');
-    add(pred?.firstLowTide, 'Low');
-    add(pred?.secondLowTide, 'Low');
-  }
+  const evs = (Array.isArray(pred?.extremes) ? pred.extremes : [])
+    .filter((e) => e && e.time)
+    .map((e) => ({ type: e.type, _utc: e.time, time: toLocal(e.time, tz), height: e.height }));
   evs.sort((a, b) => new Date(a._utc) - new Date(b._utc));
   let out = evs.map(({ type, time, height }) => ({ type, time, height })); // 去掉内部 _utc
   // filterDate('YYYY-MM-DD',钓点本地日期):只保留当天事件(未来某天=当天 0点–24点)
@@ -332,28 +244,15 @@ function localizeExtremes(pred, tz, filterDate = null) {
   return out;
 }
 
-/** 就近解析潮汐/潮流站；只有 current 需要额外解析 NDBC 浮标。 */
-async function resolveStations(lat, lng, errors, { includeBuoy = true } = {}) {
-  const [tideStation, currentStation, buoyStation] = await Promise.all([
-    settle('coopsTideStation', nearestCoopsTideStation(lat, lng), errors),
-    settle('coopsCurrentStation', nearestCoopsCurrentStation(lat, lng), errors),
-    includeBuoy
-      ? settle('ndbcStation', nearestNdbcStation(lat, lng), errors)
-      : Promise.resolve(null),
-  ]);
-  return { tideStation, currentStation, buoyStation };
-}
-
 // ----------------------------------------------------------------------------
 // tool: queryCurrentWeather —— "现在这里怎么样"的实测快照
 // ----------------------------------------------------------------------------
 /**
  * 组装未来预测时间线(拍平,来源见注释)。
- *   时间轴:coops / nws / stormglass 三源小时并集，任何来源都能独立形成行。
- *   潮位来自 coops；天气/风来自 nws；水温来自 stormglass；潮流和海浪逐字段优先
- *   stormglass，再使用各自可用的 NOAA/NWS 字段兜底。
- *   风速统一成节/(m·s),与 current 块口径一致。
- *   tideExtremes(未来窗口高低潮)来自 coops;alerts 来自 nws。
+ *   时间轴:worldTides / nws / stormglass 三源小时并集，任何来源都能独立形成行。
+ *   潮位/高低潮来自 WorldTides；气温/风/气压/水温/潮流来自 Stormglass；
+ *   天气描述/降雨/雷暴/警报来自 NWS；海浪逐字段 Stormglass → NWS 兜底。
+ *   tideExtremes(未来窗口高低潮)来自 WorldTides;alerts 来自 nws。
  */
 function normalizeHourKey(time) {
   if (!time) return null;
@@ -371,78 +270,56 @@ function hourlyMap(hourly) {
   return map;
 }
 
-function selectPredictedWave(stormglassHour, nwsHour) {
-  return selectWaveFields([
-    {
-      height: stormglassHour?.waveHeight ?? null,
-      period: stormglassHour?.wavePeriod ?? null,
-      direction: stormglassHour?.waveDirection ?? null,
-      source: 'Stormglass',
-      observedAt: stormglassHour?.time ?? null,
-    },
-    {
-      height: nwsHour?.waveHeight ?? null,
-      period: nwsHour?.wavePeriod ?? null,
-      direction: nwsHour?.waveDirection ?? null,
-      source: 'NWS',
-      observedAt: nwsHour?.time ?? null,
-    },
-  ]);
-}
-
-export function buildPredict(coops, nws, stormglass, tz, unitSystem, filterDate = null) {
-  const cMap = hourlyMap(coops?.prediction?.hourly);
+export function buildPredict(worldTides, nws, stormglass, tz, unitSystem, filterDate = null) {
+  const tMap = hourlyMap(worldTides?.prediction?.hourly); // WorldTides 逐时潮位
   const nMap = hourlyMap(nws?.prediction?.hourly);
   const sgMap = hourlyMap(stormglass?.prediction?.hourly);
 
   // 三个来源都能独立形成时间轴。使用并集，避免某个来源失败或覆盖时段不同时丢数据。
-  const keys = [...new Set([...cMap.keys(), ...nMap.keys(), ...sgMap.keys()])].sort();
+  const keys = [...new Set([...tMap.keys(), ...nMap.keys(), ...sgMap.keys()])].sort();
 
   const hourly = keys
     .map((key) => {
-      const c = cMap.get(key) || {};
+      const t = tMap.get(key) || {};
       const n = nMap.get(key) || {};
       const sg = sgMap.get(key) || {};
       const localTime = toLocal(key, tz);
-      const wave = selectPredictedWave(sg, n);
       return {
         time: localTime,
-        // ── 潮位(coops)──
-        waterLevel: c.waterLevel ?? null,
-        // ── 天气/风(nws);风速统一单位 ──
-        temperature: n.temperature ?? null,
-        windSpeed: nwsWindToCanon(n.windSpeed, unitSystem),
-        windDirection: n.windDirection ?? null,
-        windGust: nwsWindToCanon(n.windGust, unitSystem),
+        // ── 潮位(WorldTides)──
+        waterLevel: t.waterLevel ?? null,
+        // ── 气温/风(stormglass)──
+        temperature: sg.airTemperature ?? null,
+        windSpeed: sg.windSpeed ?? null,
+        windDirection: sg.windDirection ?? null,
+        windGust: sg.windGust ?? null,
+        airPressure: sg.pressure ?? null,
+        // ── 天气/降雨/雷暴(仅 nws)──
         precipitationProbability: n.precipitationProbability ?? null,
         thunderstormProbability: n.thunderstormProbability ?? null,
         shortForecast: n.shortForecast ?? null,
-        // ── 潮流(stormglass 优先 → coops 兜底;metric CO-OPS cm/s → m/s)──
-        tidalCurrentSpeed: pick(sg.currentSpeed, coopsCurrentToCanon(c.speed, unitSystem)),
-        tidalCurrentDirection: pick(sg.currentDirection, c.direction),
+        // ── 潮流(仅 stormglass,无兜底)──
+        tidalCurrentSpeed: sg.currentSpeed ?? null,
+        tidalCurrentDirection: sg.currentDirection ?? null,
         // ── 水温(stormglass)──
         waterTemperature: sg.waterTemperature ?? null,
-        // ── 浪:每个字段独立 Stormglass → NWS 兜底 ──
-        waveHeight: wave.height,
-        wavePeriod: wave.period,
-        waveDirection: wave.direction,
-        waveHeightSource: wave.heightSource,
-        wavePeriodSource: wave.periodSource,
-        waveDirectionSource: wave.directionSource,
-        waveSource: wave.source,
+        // ── 浪(仅 stormglass,无兜底)──
+        waveHeight: sg.waveHeight ?? null,
+        wavePeriod: sg.wavePeriod ?? null,
+        waveDirection: sg.waveDirection ?? null,
       };
     })
     .filter((entry) => !filterDate || entry.time?.slice(0, 10) === filterDate);
 
   return {
     // 未来窗口内高低潮(时间转本地;未来某天按 filterDate 过滤到当天 0–24 点)
-    tideExtremes: localizeExtremes(coops?.prediction, tz, filterDate),
+    tideExtremes: localizeExtremes(worldTides?.prediction, tz, filterDate),
     hourly,
     alerts: nws?.alerts || [],
     units:
       unitSystem === 'metric'
-        ? { waterLevel: 'm', tidalCurrentSpeed: 'm/s', waterTemperature: 'degC', temp: 'degC', windSpeed: 'm/s', waveHeight: 'm', wavePeriod: 's', direction: 'deg' }
-        : { waterLevel: 'ft', tidalCurrentSpeed: 'knots', waterTemperature: 'degF', temp: 'degF', windSpeed: 'knots', waveHeight: 'ft', wavePeriod: 's', direction: 'deg' },
+        ? { waterLevel: 'm', tidalCurrentSpeed: 'm/s', waterTemperature: 'degC', temp: 'degC', airPressure: 'hPa', windSpeed: 'm/s', waveHeight: 'm', wavePeriod: 's', direction: 'deg' }
+        : { waterLevel: 'ft', tidalCurrentSpeed: 'knots', waterTemperature: 'degF', temp: 'degF', airPressure: 'hPa', windSpeed: 'knots', waveHeight: 'ft', wavePeriod: 's', direction: 'deg' },
   };
 }
 
@@ -451,27 +328,17 @@ export async function getCurrentConditions(lat, lng, { name = null, note = null,
   const units = normalizeUnitSystem(unitSystem);
   const errors = [];
 
-  // 不依赖站点的来源立即并发启动；CO-OPS/NDBC 等站点解析完成后再启动。
-  const stationsPromise = resolveStations(lat, lng, errors);
-  const stormglassPromise = settle('stormglass', getStormglass(lat, lng, { mode: 'current', unitSystem: units }), errors);
-  const nwsPromise = settle('nationalWeatherService', getNationalWeatherService(lat, lng, { mode: 'current', unitSystem: units }), errors);
-  const astronomyPromise = settle('astronomy', getAstronomy(lat, lng, {}), errors);
-  const bathymetryPromise = settle('noaaBathymetry', getNoaaBathymetry(lat, lng, { unitSystem: units }), errors);
-  const usgsPromise = settle('usgsWaterData', getUsgsWaterData(lat, lng, { mode: 'current', unitSystem: units }), errors);
-
-  const { tideStation, currentStation, buoyStation } = await stationsPromise;
-  const [stormglass, nws, coops, coopsTide, ndbc, astronomy, bathymetry, usgs] = await Promise.all([
-    stormglassPromise,
-    nwsPromise,
-    settle('noaaCoops', getNoaaCoops(lat, lng, { tideStation, currentStation, mode: 'current', unitSystem: units }), errors),
-    settle('noaaCoopsTide', getNoaaCoops(lat, lng, { tideStation, currentStation, mode: 'prediction', unitSystem: units }), errors),
-    settle('noaaNdbc', getNoaaNdbc(lat, lng, { buoyStation, mode: 'current', unitSystem: units }), errors),
-    astronomyPromise,
-    bathymetryPromise,
-    usgsPromise,
+  // 全部按坐标直查,无需站点解析,直接并发。
+  const [stormglass, nws, worldTides, astronomy, bathymetry, usgs] = await Promise.all([
+    settle('stormglass', getStormglass(lat, lng, { mode: 'current', unitSystem: units }), errors),
+    settle('nationalWeatherService', getNationalWeatherService(lat, lng, { mode: 'current', unitSystem: units }), errors),
+    settle('worldTides', getWorldTides(lat, lng, { unitSystem: units }), errors),
+    settle('astronomy', getAstronomy(lat, lng, {}), errors),
+    settle('noaaBathymetry', getNoaaBathymetry(lat, lng, { unitSystem: units }), errors),
+    settle('usgsWaterData', getUsgsWaterData(lat, lng, { mode: 'current', unitSystem: units }), errors),
   ]);
 
-  collectSourceErrors(errors, stormglass, nws, coops, coopsTide, ndbc, astronomy, bathymetry, usgs);
+  collectSourceErrors(errors, stormglass, nws, worldTides, astronomy, bathymetry, usgs);
   const timezone = nws?.timezone || DEFAULT_TIMEZONE;
   return {
     name,
@@ -479,8 +346,8 @@ export async function getCurrentConditions(lat, lng, { name = null, note = null,
     latitude: lat,
     longitude: lng,
     currentTime: toLocal(new Date().toISOString(), timezone),
-    tideExtremes: localizeExtremes(coopsTide?.prediction, timezone),
-    currentTideAndWeather: buildCurrent(coops, nws, ndbc, stormglass, timezone, units),
+    tideExtremes: localizeExtremes(worldTides?.prediction, timezone),
+    currentTideAndWeather: buildCurrent(worldTides, nws, stormglass, timezone, units),
     common: buildCommon(astronomy, bathymetry, usgs, timezone),
     errors,
   };
@@ -497,40 +364,19 @@ export async function getPredictConditions(lat, lng, { name = null, note = null,
 
   const etToday = new Date().toLocaleDateString('en-CA', { timeZone: DEFAULT_TIMEZONE });
   const isFutureDay = !!targetDate && targetDate !== etToday;
-  const coopsDate = isFutureDay ? targetDate : undefined;
-  const coopsHours = isFutureDay ? 30 : 24;
+  const tideHours = isFutureDay ? 30 : 24;
 
-  // 预测不需要 NDBC；其余不依赖站点的来源与站点解析同时启动。
-  const stationsPromise = resolveStations(lat, lng, errors, { includeBuoy: false });
-  const stormglassPromise = settle(
-    'stormglass',
-    getStormglass(lat, lng, { mode: 'prediction', unitSystem: units, date: isFutureDay ? targetDate : undefined }),
-    errors
-  );
-  const nwsPromise = settle(
-    'nationalWeatherService',
-    getNationalWeatherService(lat, lng, { mode: 'prediction', unitSystem: units, date: isFutureDay ? targetDate : undefined }),
-    errors
-  );
-  const astronomyPromise = settle('astronomy', getAstronomy(lat, lng, { date: targetDate }), errors);
-  const bathymetryPromise = settle('noaaBathymetry', getNoaaBathymetry(lat, lng, { unitSystem: units }), errors);
-  const usgsPromise = settle('usgsWaterData', getUsgsWaterData(lat, lng, { mode: 'current', unitSystem: units }), errors);
-
-  const { tideStation, currentStation } = await stationsPromise;
-  const [stormglass, nws, coops, astronomy, bathymetry, usgs] = await Promise.all([
-    stormglassPromise,
-    nwsPromise,
-    settle(
-      'noaaCoops',
-      getNoaaCoops(lat, lng, { tideStation, currentStation, date: coopsDate, hours: coopsHours, mode: 'prediction', unitSystem: units }),
-      errors
-    ),
-    astronomyPromise,
-    bathymetryPromise,
-    usgsPromise,
+  // 全部按坐标直查,无需站点解析,直接并发。
+  const [stormglass, nws, worldTides, astronomy, bathymetry, usgs] = await Promise.all([
+    settle('stormglass', getStormglass(lat, lng, { mode: 'prediction', unitSystem: units, date: isFutureDay ? targetDate : undefined }), errors),
+    settle('nationalWeatherService', getNationalWeatherService(lat, lng, { mode: 'prediction', unitSystem: units, date: isFutureDay ? targetDate : undefined }), errors),
+    settle('worldTides', getWorldTides(lat, lng, { unitSystem: units, date: isFutureDay ? targetDate : undefined, hours: tideHours }), errors),
+    settle('astronomy', getAstronomy(lat, lng, { date: targetDate }), errors),
+    settle('noaaBathymetry', getNoaaBathymetry(lat, lng, { unitSystem: units }), errors),
+    settle('usgsWaterData', getUsgsWaterData(lat, lng, { mode: 'current', unitSystem: units }), errors),
   ]);
 
-  collectSourceErrors(errors, stormglass, nws, coops, astronomy, bathymetry, usgs);
+  collectSourceErrors(errors, stormglass, nws, worldTides, astronomy, bathymetry, usgs);
   const timezone = nws?.timezone || DEFAULT_TIMEZONE;
   return {
     name,
@@ -539,7 +385,7 @@ export async function getPredictConditions(lat, lng, { name = null, note = null,
     longitude: lng,
     date: astronomy?.date || targetDate || null,
     currentTime: toLocal(new Date().toISOString(), timezone),
-    predictTideAndWeather: buildPredict(coops, nws, stormglass, timezone, units, isFutureDay ? targetDate : null),
+    predictTideAndWeather: buildPredict(worldTides, nws, stormglass, timezone, units, isFutureDay ? targetDate : null),
     common: buildCommon(astronomy, bathymetry, usgs, timezone),
     errors,
   };

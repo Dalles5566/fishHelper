@@ -124,6 +124,11 @@ export const config = {
     dailyLimit: Number(process.env.STORMGLASS_DAILY_LIMIT || 10),
   },
 
+  // WorldTides API(潮汐:高低潮 + 逐时潮位,按坐标直查,取代 CO-OPS)
+  worldTides: {
+    apiKey: process.env.WORLDTIDES_API_KEY || '',
+  },
+
   // Redis:存 Stormglass 各 key 的每日配额状态(进程重启后仍保留;每日美东午夜过期重置)
   redis: {
     url: process.env.REDIS_URL || 'redis://localhost:6379',
