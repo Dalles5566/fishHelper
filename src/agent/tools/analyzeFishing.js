@@ -111,7 +111,15 @@ export function computeHourlyBlocks(hourly) {
     const airTemp = temps.length
       ? `${fmtRange(Math.min(...temps), Math.max(...temps))}°F (${fmtRange(fToC(Math.min(...temps)), fToC(Math.max(...temps)))}°C)`
       : null;
-    const waveHeight = waves.length ? `${fmtRange(Math.min(...waves), Math.max(...waves), 1)} ft` : null;
+    const waveDirs = es
+      .map((e) => e.waveDirection)
+      .filter((value) => value != null && value !== '')
+      .map(Number)
+      .filter(Number.isFinite);
+    const waveCardinal = degToCardinal(circularMeanDegrees(waveDirs)); // 浪向取圆周平均 → 方位词
+    const waveHeight = waves.length
+      ? `${fmtRange(Math.min(...waves), Math.max(...waves), 1)} ft${waveCardinal ? ' | ' + waveCardinal : ''}`
+      : null;
     const wavePeriod = periods.length ? `${fmtRange(Math.min(...periods), Math.max(...periods))} s` : null;
     // 该时段内的最大降水/雷暴概率(同一批 entries,天然按日期隔离)
     const precipProb = Math.max(0, ...es.map((e) => e.precipitationProbability ?? 0));
@@ -253,7 +261,8 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh') {
     const tcsStr = tcs != null ? `${tcs} kt (${ktToMph(tcs)} mph)` : null;
     const directionStr = tcd != null ? ` / ${tcd}° ${degToCardinal(tcd)}` : '';
     lines.push(`${l.tidalCurrent}: ${tcsStr ? `${tcsStr}${directionStr}` : nd}`);
-    const wh = cw.waveHeight != null ? `${cw.waveHeight} ft` : nd;
+    const waveDir = cw.waveDirection != null ? degToCardinal(cw.waveDirection) : '';
+    const wh = cw.waveHeight != null ? `${cw.waveHeight} ft${waveDir ? ' ' + waveDir : ''}` : nd;
     const wp = cw.wavePeriod != null ? `${cw.wavePeriod} s` : nd;
     lines.push(`${l.wave}: ${wh} | ${wp}`);
   } else if (Array.isArray(hourlyBlocks) && hourlyBlocks.length) {
