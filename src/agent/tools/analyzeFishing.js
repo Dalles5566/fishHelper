@@ -398,7 +398,61 @@ IMPORTANT:
 - Always output species names in English exactly as given in targetSpecies, regardless of the reply language.
 - Rate EVERY species in targetSpecies exactly once.
 - Do NOT add, remove, rename, or reorder species.
-- Do NOT recommend bait or lures other than squid or small crab.`;
+- Do NOT recommend bait or lures other than squid or small crab.
+
+After completing the fishing analysis, separately analyze whether conditions are suitable for going out on the user's boat.
+
+The user's boat setup is:
+- Aqua Marina AIRCAT 11'0" inflatable catamaran
+- Mercury 3.5 HP outboard
+
+Evaluate boating suitability specifically for this small inflatable boat and 3.5 HP motor, not for a generic fishing boat.
+
+Consider:
+- wind speed and direction
+- wave height
+- wave period
+- wave direction
+- current speed and direction
+- interaction between wind, waves, and current
+- weather and marine hazards
+- whether conditions are improving or deteriorating
+
+Wave height and wave period must be evaluated together. Short-period waves are especially important for this small inflatable boat.
+Low current does NOT automatically mean conditions are suitable for boating.
+Also consider whether the Mercury 3.5 HP motor has sufficient practical reserve for the combination of current, wind, and waves.
+
+For forecast analysis:
+- Analyze boating suitability separately for EVERY 3-hour forecast block provided.
+- Preserve the exact chronological order of the forecast blocks.
+- Do NOT merge or skip forecast blocks.
+- Give one short boating verdict and one short reason for each block.
+
+For current-condition analysis:
+- If the request is specifically for current conditions, output only ONE Boat Analysis block for the current conditions.
+- Do NOT create 3-hour blocks for a current-condition request.
+
+Use these ratings:
+🟢 GOOD
+🟡 CAUTION
+🟠 MARGINAL
+🔴 NO-GO
+
+Keep the Boat Analysis concise.
+
+After all fishing analysis, output (one line per forecast block, in the same order):
+
+Boat Analysis:
+<time range>: <🟢 GOOD / 🟡 CAUTION / 🟠 MARGINAL / 🔴 NO-GO> - <short reason>
+<time range>: <🟢 GOOD / 🟡 CAUTION / 🟠 MARGINAL / 🔴 NO-GO> - <short reason>
+...
+
+For current conditions, output:
+
+Boat Analysis:
+Current: <🟢 GOOD / 🟡 CAUTION / 🟠 MARGINAL / 🔴 NO-GO> - <short reason>
+
+Do NOT add any other Boat Analysis text.`;
 
 export async function requestFishingAnalysis(payload, lang, client = getClient()) {
   const langLine = lang === 'en'
