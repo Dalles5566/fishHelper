@@ -107,7 +107,9 @@ export function computeHourlyBlocks(hourly) {
     const spd = speeds.length ? fmtRange(Math.min(...speeds), Math.max(...speeds), 1) : null;
     const spdMph = speeds.length ? fmtRange(ktToMph(Math.min(...speeds)), ktToMph(Math.max(...speeds))) : null;
     const windCardinal = degToCardinal(circularMeanDegrees(windDirs)); // 时段风向取圆周平均 → 方位词
-    const wind = spd ? `${spd} kt (${spdMph} mph)${windCardinal ? ' ' + windCardinal : ''}` : windCardinal || null;
+    const gusts = es.map((e) => e.windGust).filter((v) => v != null);
+    const gustStr = gusts.length ? ` (*${fmtRange(Math.min(...gusts), Math.max(...gusts), 1)}*)` : ''; // 阵风,用 * 突出
+    const wind = spd ? `${spd} kt${gustStr} (${spdMph} mph)${windCardinal ? ' ' + windCardinal : ''}` : windCardinal || null;
     const airTemp = temps.length
       ? `${fmtRange(Math.min(...temps), Math.max(...temps))}°F (${fmtRange(fToC(Math.min(...temps)), fToC(Math.max(...temps)))}°C)`
       : null;
@@ -118,7 +120,7 @@ export function computeHourlyBlocks(hourly) {
       .filter(Number.isFinite);
     const waveCardinal = degToCardinal(circularMeanDegrees(waveDirs)); // 浪向取圆周平均 → 方位词
     const waveHeight = waves.length
-      ? `${fmtRange(Math.min(...waves), Math.max(...waves), 1)} ft${waveCardinal ? ' | ' + waveCardinal : ''}`
+      ? `${fmtRange(Math.min(...waves), Math.max(...waves), 1)} ft (${fmtRange(ftToM(Math.min(...waves)), ftToM(Math.max(...waves)), 1)} m)${waveCardinal ? ' | ' + waveCardinal : ''}`
       : null;
     const wavePeriod = periods.length ? `${fmtRange(Math.min(...periods), Math.max(...periods))} s` : null;
     // 该时段内的最大降水/雷暴概率(同一批 entries,天然按日期隔离)
@@ -177,12 +179,18 @@ function fToC(f) {
   return Math.round((f - 32) * 5 / 9);
 }
 
-/** 格式化风速: "5.2 kt (6 mph) NW" */
+/** ft → m */
+function ftToM(ft) {
+  if (ft == null) return null;
+  return Math.round(ft * 0.3048 * 10) / 10;
+}
+
+/** 格式化风速: "5.2 kt (*8*) (6 mph) NW"(阵风用 * 突出) */
 function fmtWind(speed, gust, cardinal) {
   if (speed == null) return null;
-  let s = `${speed} kt (${ktToMph(speed)} mph)`;
+  const gustStr = gust != null ? ` (*${gust}*)` : ''; // 阵风,用 * 突出
+  let s = `${speed} kt${gustStr} (${ktToMph(speed)} mph)`;
   if (cardinal) s = `${cardinal} ${s}`;
-  if (gust != null) s += `, gust ${gust} kt (${ktToMph(gust)} mph)`;
   return s;
 }
 
@@ -262,7 +270,7 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh', boatVerdicts
     const directionStr = tcd != null ? ` / ${tcd}° ${degToCardinal(tcd)}` : '';
     lines.push(`${l.tidalCurrent}: ${tcsStr ? `${tcsStr}${directionStr}` : nd}`);
     const waveDir = cw.waveDirection != null ? degToCardinal(cw.waveDirection) : '';
-    const wh = cw.waveHeight != null ? `${cw.waveHeight} ft${waveDir ? ' ' + waveDir : ''}` : nd;
+    const wh = cw.waveHeight != null ? `${cw.waveHeight} ft (${ftToM(cw.waveHeight)} m)${waveDir ? ' ' + waveDir : ''}` : nd;
     const wp = cw.wavePeriod != null ? `${cw.wavePeriod} s` : nd;
     lines.push(`${l.wave}: ${wh} | ${wp}`);
     // 出海评级(current:key='Current')
@@ -471,6 +479,9 @@ For current-condition data:
 
 * Output exactly ONE line for the current conditions.
 * Do NOT generate forecast time periods.
+
+Always keep measurement units as English abbreviations: ft, kt, s, mph, m. NEVER translate units into Chinese (do NOT write 英尺/节/秒; use ft/kt/s).
+Only cite numbers that actually appear in the JSON. NEVER invent wind, gust, wave, current, or any other values.
 
 The reason must be extremely short.
 Mention ONLY the main factor determining the rating, or at most two closely related factors.
