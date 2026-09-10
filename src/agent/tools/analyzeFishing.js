@@ -108,8 +108,9 @@ export function computeHourlyBlocks(hourly) {
     const spdMph = speeds.length ? fmtRange(ktToMph(Math.min(...speeds)), ktToMph(Math.max(...speeds))) : null;
     const windCardinal = degToCardinal(circularMeanDegrees(windDirs)); // 时段风向取圆周平均 → 方位词
     const gusts = es.map((e) => e.windGust).filter((v) => v != null);
-    const gustStr = gusts.length ? ` (*${fmtRange(Math.min(...gusts), Math.max(...gusts), 1)}*)` : ''; // 阵风,用 * 突出
-    const wind = spd ? `${spd} kt${gustStr} (${spdMph} mph)${windCardinal ? ' ' + windCardinal : ''}` : windCardinal || null;
+    const gustStr = gusts.length ? ` (*${fmtRange(Math.min(...gusts), Math.max(...gusts), 1)}*)` : ''; // 阵风,用 * 突出(不参与颜色)
+    const windClr = speeds.length ? windColor(Math.max(...speeds)) : ''; // 颜色按持续风速最大端(不含阵风)
+    const wind = spd ? `${spd} kt${gustStr} (${spdMph} mph)${windCardinal ? ' ' + windCardinal : ''}${windClr}` : windCardinal || null;
     const airTemp = temps.length
       ? `${fmtRange(Math.min(...temps), Math.max(...temps))}°F (${fmtRange(fToC(Math.min(...temps)), fToC(Math.max(...temps)))}°C)`
       : null;
@@ -120,7 +121,7 @@ export function computeHourlyBlocks(hourly) {
       .filter(Number.isFinite);
     const waveCardinal = degToCardinal(circularMeanDegrees(waveDirs)); // 浪向取圆周平均 → 方位词
     const waveHeight = waves.length
-      ? `${fmtRange(Math.min(...waves), Math.max(...waves), 1)} ft (${fmtRange(ftToM(Math.min(...waves)), ftToM(Math.max(...waves)), 1)} m)${waveCardinal ? ' | ' + waveCardinal : ''}`
+      ? `${fmtRange(Math.min(...waves), Math.max(...waves), 1)} ft (${fmtRange(ftToM(Math.min(...waves)), ftToM(Math.max(...waves)), 1)} m)${waveColor(Math.max(...waves))}${waveCardinal ? ' | ' + waveCardinal : ''}`
       : null;
     const wavePeriod = periods.length ? `${fmtRange(Math.min(...periods), Math.max(...periods))} s` : null;
     // 涌浪(远处长周期浪):高度 + 周期 + 圆周平均方向
@@ -133,7 +134,7 @@ export function computeHourlyBlocks(hourly) {
       .filter(Number.isFinite);
     const swellCardinal = degToCardinal(circularMeanDegrees(swellDirs));
     const swellHeight = swellHeights.length
-      ? `${fmtRange(Math.min(...swellHeights), Math.max(...swellHeights), 1)} ft (${fmtRange(ftToM(Math.min(...swellHeights)), ftToM(Math.max(...swellHeights)), 1)} m)${swellCardinal ? ' | ' + swellCardinal : ''}`
+      ? `${fmtRange(Math.min(...swellHeights), Math.max(...swellHeights), 1)} ft (${fmtRange(ftToM(Math.min(...swellHeights)), ftToM(Math.max(...swellHeights)), 1)} m)${waveColor(Math.max(...swellHeights))}${swellCardinal ? ' | ' + swellCardinal : ''}`
       : null;
     const swellPeriod = swellPeriods.length ? `${fmtRange(Math.min(...swellPeriods), Math.max(...swellPeriods))} s` : null;
     // 风浪(本地风短周期浪):高度 + 周期 + 圆周平均方向
@@ -146,7 +147,7 @@ export function computeHourlyBlocks(hourly) {
       .filter(Number.isFinite);
     const windWaveCardinal = degToCardinal(circularMeanDegrees(windWaveDirs));
     const windWaveHeight = windWaveHeights.length
-      ? `${fmtRange(Math.min(...windWaveHeights), Math.max(...windWaveHeights), 1)} ft (${fmtRange(ftToM(Math.min(...windWaveHeights)), ftToM(Math.max(...windWaveHeights)), 1)} m)${windWaveCardinal ? ' | ' + windWaveCardinal : ''}`
+      ? `${fmtRange(Math.min(...windWaveHeights), Math.max(...windWaveHeights), 1)} ft (${fmtRange(ftToM(Math.min(...windWaveHeights)), ftToM(Math.max(...windWaveHeights)), 1)} m)${waveColor(Math.max(...windWaveHeights))}${windWaveCardinal ? ' | ' + windWaveCardinal : ''}`
       : null;
     const windWavePeriod = windWavePeriods.length ? `${fmtRange(Math.min(...windWavePeriods), Math.max(...windWavePeriods))} s` : null;
     // 该时段内的最大降水/雷暴概率(同一批 entries,天然按日期隔离)
@@ -163,7 +164,7 @@ export function computeHourlyBlocks(hourly) {
       .filter(Number.isFinite);
     const meanCurrentDirection = circularMeanDegrees(cDirs);
     const tidalCurrent = cSpeeds.length
-      ? `${fmtRange(Math.min(...cSpeeds), Math.max(...cSpeeds), 2)} kt (${fmtRange(ktToMph(Math.min(...cSpeeds)), ktToMph(Math.max(...cSpeeds)))} mph)${meanCurrentDirection != null ? ` / ${meanCurrentDirection}°` : ''}`
+      ? `${fmtRange(Math.min(...cSpeeds), Math.max(...cSpeeds), 2)} kt (${fmtRange(ktToMph(Math.min(...cSpeeds)), ktToMph(Math.max(...cSpeeds)))} mph)${currentColor(Math.max(...cSpeeds))}${meanCurrentDirection != null ? ` / ${meanCurrentDirection}°` : ''}`
       : null;
     return { range, wind, airTemp, weather, waveHeight, wavePeriod, swellHeight, swellPeriod, windWaveHeight, windWavePeriod, precipProb, thunderProb, waterTemp, tidalCurrent };
   });
@@ -212,6 +213,64 @@ function ftToM(ft) {
   if (ft == null) return null;
   return Math.round(ft * 0.3048 * 10) / 10;
 }
+
+/**
+ * 浪周期(秒)→ 对小充气船的舒适度颜色 emoji。
+ *   1-2s 🔴 碎浪 / 3-4s 🟠 短周期 / 5-6s 🟡 中等 / 7-9s 🟢 长周期 / 10s+ 🟢 涌浪
+ * 越短越颠越危险,取值越小越保守。
+ */
+function periodColor(sec) {
+  if (sec == null || !Number.isFinite(Number(sec))) return '';
+  const s = Number(sec);
+  if (s <= 2) return '🔴';
+  if (s <= 4) return '🟠';
+  if (s <= 6) return '🟡';
+  return '🟢'; // 7s 及以上
+}
+
+/**
+ * 给周期字符串(如 "5 s" / "5-6 s")拼上颜色 emoji。
+ * 范围取较小端定档(周期越短越急越危险,越保守)。无法解析则原样返回。
+ */
+function periodWithColor(periodStr) {
+  if (!periodStr) return periodStr;
+  const m = String(periodStr).match(/(\d+(?:\.\d+)?)/); // 第一个数字 = 范围较小端
+  if (!m) return periodStr;
+  const color = periodColor(Number(m[1]));
+  return color ? `${periodStr}${color}` : periodStr;
+}
+
+/** 持续风速(kt)→ 颜色:0-7🟢 / 8-12🟡 / 13-17🟠 / 18+🔴 */
+function windColor(kt) {
+  if (kt == null || !Number.isFinite(Number(kt))) return '';
+  const v = Number(kt);
+  if (v < 8) return '🟢';
+  if (v < 13) return '🟡';
+  if (v < 18) return '🟠';
+  return '🔴';
+}
+
+/** 潮流速度(kt)→ 颜色:<0.5🟢 / 0.5-1🟡 / 1-2🟠 / >2🔴 */
+function currentColor(kt) {
+  if (kt == null || !Number.isFinite(Number(kt))) return '';
+  const v = Number(kt);
+  if (v < 0.5) return '🟢';
+  if (v <= 1) return '🟡';
+  if (v <= 2) return '🟠';
+  return '🔴';
+}
+
+/** 浪高(ft)→ 颜色:<1🟢 / 1-1.5🟡 / 1.5-2.5🟠 / >2.5🔴 */
+function waveColor(ft) {
+  if (ft == null || !Number.isFinite(Number(ft))) return '';
+  const v = Number(ft);
+  if (v < 1) return '🟢';
+  if (v <= 1.5) return '🟡';
+  if (v <= 2.5) return '🟠';
+  return '🔴';
+}
+
+
 
 /** 格式化风速: "5.2 kt (*8*) (6 mph) NW"(阵风用 * 突出) */
 function fmtWind(speed, gust, cardinal) {
@@ -289,26 +348,26 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh', boatVerdicts
     // 顺序: 气温 → 天气 → 风速 → 水温 → 浪高 → 浪周期
     lines.push(`${l.airTemp}: ${cw.airTemp != null ? fmtTemp(cw.airTemp) : nd}`);
     lines.push(`${l.weather}: ${cw.shortForecast || nd}${cw.precipitationProbability || cw.thunderstormProbability ? `, Precip ${cw.precipitationProbability ?? 0}%, Thunder ${cw.thunderstormProbability ?? 0}%` : ''}`);
-    const ws = wind.speed != null ? fmtWind(wind.speed, wind.gust, wind.cardinal) : nd;
+    const ws = wind.speed != null ? `${fmtWind(wind.speed, wind.gust, wind.cardinal)}${windColor(wind.speed)}` : nd; // 颜色按持续风速(不含阵风)
     lines.push(`${l.wind}: ${ws}`);
     lines.push(`${l.waterTemp}: ${wt != null ? `${wt}°F (${fToC(wt)}°C)` : nd}`);
     const tcs = cw.tidalCurrentSpeed;
     const tcd = cw.tidalCurrentDirection;
-    const tcsStr = tcs != null ? `${tcs} kt (${ktToMph(tcs)} mph)` : null;
-    const directionStr = tcd != null ? ` / ${tcd}° ${degToCardinal(tcd)}` : '';
+    const tcsStr = tcs != null ? `${tcs} kt (${ktToMph(tcs)} mph)${currentColor(tcs)}` : null;
+    const directionStr = tcd != null ? ` ${tcd}° ${degToCardinal(tcd)}` : '';
     lines.push(`${l.tidalCurrent}: ${tcsStr ? `${tcsStr}${directionStr}` : nd}`);
     const waveDir = cw.waveDirection != null ? degToCardinal(cw.waveDirection) : '';
-    const wh = cw.waveHeight != null ? `${cw.waveHeight} ft (${ftToM(cw.waveHeight)} m)${waveDir ? ' ' + waveDir : ''}` : nd;
-    const wp = cw.wavePeriod != null ? `${cw.wavePeriod} s` : nd;
+    const wh = cw.waveHeight != null ? `${cw.waveHeight} ft (${ftToM(cw.waveHeight)} m)${waveColor(cw.waveHeight)}${waveDir ? ' ' + waveDir : ''}` : nd;
+    const wp = cw.wavePeriod != null ? periodWithColor(`${cw.wavePeriod} s`) : nd;
     lines.push(`${l.wave}: ${wh} | ${wp}`);
-    // 涌浪(长周期)/ 风浪(短周期):拆分显示,帮助判断小船适航性
+    // 涌浪(长周期)/ 风浪(短周期):拆分显示,帮助判断小船适航性;高度和周期均带颜色档
     if (cw.swellHeight != null) {
       const swDir = cw.swellDirection != null ? degToCardinal(cw.swellDirection) : '';
-      lines.push(`${l.swell}: ${cw.swellHeight} ft (${ftToM(cw.swellHeight)} m)${swDir ? ' ' + swDir : ''}${cw.swellPeriod != null ? ` | ${cw.swellPeriod} s` : ''}`);
+      lines.push(`${l.swell}: ${cw.swellHeight} ft (${ftToM(cw.swellHeight)} m)${waveColor(cw.swellHeight)}${swDir ? ' ' + swDir : ''}${cw.swellPeriod != null ? ` | ${periodWithColor(`${cw.swellPeriod} s`)}` : ''}`);
     }
     if (cw.windWaveHeight != null) {
       const wwDir = cw.windWaveDirection != null ? degToCardinal(cw.windWaveDirection) : '';
-      lines.push(`${l.windWave}: ${cw.windWaveHeight} ft (${ftToM(cw.windWaveHeight)} m)${wwDir ? ' ' + wwDir : ''}${cw.windWavePeriod != null ? ` | ${cw.windWavePeriod} s` : ''}`);
+      lines.push(`${l.windWave}: ${cw.windWaveHeight} ft (${ftToM(cw.windWaveHeight)} m)${waveColor(cw.windWaveHeight)}${wwDir ? ' ' + wwDir : ''}${cw.windWavePeriod != null ? ` | ${periodWithColor(`${cw.windWavePeriod} s`)}` : ''}`);
     }
     // 出海评级(current:key='Current')
     const curBoat = boatVerdicts?.get('Current');
@@ -345,19 +404,16 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh', boatVerdicts
         const cardinal = m ? ` ${degToCardinal(Number(m[1]))}` : '';
         lines.push(`${l.tidalCurrent}    | ${b.tidalCurrent}${cardinal}`);
       }
-      // 浪高 / 浪周期 分两行(合成总浪)
+      // 浪高(合成总浪):周期合并到末尾,周期带颜色档
       if (b.waveHeight) {
-        lines.push(`${l.waveHeight}    | ${b.waveHeight}`);
+        lines.push(`${l.waveHeight}    | ${b.waveHeight}${b.wavePeriod ? ` | ${periodWithColor(b.wavePeriod)}` : ''}`);
       }
-      if (b.wavePeriod) {
-        lines.push(`${l.wavePeriod} | ${b.wavePeriod}`);
-      }
-      // 涌浪(长周期)/ 风浪(短周期):拆分显示,帮助判断小船适航性
+      // 涌浪(长周期)/ 风浪(短周期):拆分显示,帮助判断小船适航性;周期同样合并并上色
       if (b.swellHeight) {
-        lines.push(`${l.swell}    | ${b.swellHeight}${b.swellPeriod ? ` / ${b.swellPeriod}` : ''}`);
+        lines.push(`${l.swell}    | ${b.swellHeight}${b.swellPeriod ? ` | ${periodWithColor(b.swellPeriod)}` : ''}`);
       }
       if (b.windWaveHeight) {
-        lines.push(`${l.windWave}    | ${b.windWaveHeight}${b.windWavePeriod ? ` / ${b.windWavePeriod}` : ''}`);
+        lines.push(`${l.windWave}    | ${b.windWaveHeight}${b.windWavePeriod ? ` | ${periodWithColor(b.windWavePeriod)}` : ''}`);
       }
       // 出海评级(按时段 range 匹配,插在浪周期后)
       const boat = boatVerdicts?.get(b.range);
