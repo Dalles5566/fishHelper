@@ -465,10 +465,10 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh', boatVerdicts
       }
       // 天气(描述一行,降雨/雷暴概率另起一行)
       if (b.weather) {
-        lines.push(`${b.weather}`);
         if (b.precipProb || b.thunderProb) {
           lines.push(`                      🌧️ ${b.precipProb}%, ⚡ ${b.thunderProb}%`);
         }
+        lines.push(`${b.weather}`);
       }
       // 风速
       if (b.wind) {
