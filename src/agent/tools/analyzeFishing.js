@@ -457,17 +457,17 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh', boatVerdicts
       lines.push(`■■■■■■■■${b.range}■■■■■■■■`);
       // 气温
       if (b.airTemp) {
-        lines.push(`🌡️🌡️${l.airTemp}: ${b.airTemp}🌡️🌡️`);
+        lines.push(`              🌡️🌡️${l.airTemp}: ${b.airTemp}🌡️🌡️`);
       }
       // 水温
       if (b.waterTemp) {
-        lines.push(`💧🌡️${l.waterTemp}: ${b.waterTemp}💧🌡️`);
+        lines.push(`              💧🌡️${l.waterTemp}: ${b.waterTemp}💧🌡️`);
       }
       // 天气(描述一行,降雨/雷暴概率另起一行)
       if (b.weather) {
         lines.push(`${b.weather}`);
         if (b.precipProb || b.thunderProb) {
-          lines.push(`🌧️ ${b.precipProb}%, ⚡ ${b.thunderProb}%`);
+          lines.push(`                      🌧️ ${b.precipProb}%, ⚡ ${b.thunderProb}%`);
         }
       }
       // 风速
