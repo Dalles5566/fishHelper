@@ -451,7 +451,7 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh', boatVerdicts
     // Prediction: 每个时间块按统一格式输出全部字段
     for (const b of hourlyBlocks) {
       const hasData = b.airTemp || b.weather || b.waterTemp || b.wind || b.tidalCurrent
-        || b.waveHeight || b.wavePeriod || b.swellHeight || b.windWaveHeight;
+     || b.waveHeight || b.wavePeriod || b.swellHeight || b.windWaveHeight;
       if (!hasData) continue;
       // 时间段头
       lines.push(`■■■■■■■■■■■ˉ■■■■■■■■■■■`);
@@ -473,11 +473,11 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh', boatVerdicts
       }
       // 风速
       if (b.wind) {
-        lines.push(`${l.wind}    | ${b.wind}`);
+        lines.push(`${l.wind} | ${b.wind}`);
       }
       // 潮流(方位词已在 computeHourlyBlocks 拼好)
       if (b.tidalCurrent) {
-        lines.push(`${l.tidalCurrent}    | ${b.tidalCurrent}`);
+        lines.push(`${l.tidalCurrent} | ${b.tidalCurrent}`);
       }
       // 浪高/涌浪/风浪:高度与周期合并一行(周期字符串已带同源颜色档)。
       // 只要高度或周期任一有值就出这一行 —— 否则该项档位会进"总"的计数却没显示出来。
@@ -487,7 +487,7 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh', boatVerdicts
         [l.windWave, b.windWaveHeight, b.windWavePeriod],
       ]) {
         if (!height && !period) continue;
-        lines.push(`${label}    | ${[height, period].filter(Boolean).join(' | ')}`);
+        lines.push(`${label} | ${[height, period].filter(Boolean).join(' | ')}`);
       }
       // 出海评级:🚤 <AI总评色> | 总: <8 项字段档位计数>(直接数 block 里的枚举,不解析字符串)
       const boat = boatVerdicts?.get(b.range); // AI 只给总评色(🟢🟡🟠🔴)
