@@ -454,7 +454,7 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh', boatVerdicts
         || b.waveHeight || b.wavePeriod || b.swellHeight || b.windWaveHeight;
       if (!hasData) continue;
       // 时间段头
-      lines.push(`■■■■■■■■■■■■■■■■■■■■■■■■`);
+      lines.push(`■■■■■■■■■■■ˉ■■■■■■■■■■■`);
       lines.push(`■■■■■■■■${b.range}■■■■■■■■`);
       // 气温
       if (b.airTemp) {
