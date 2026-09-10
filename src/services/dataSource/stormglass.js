@@ -27,7 +27,7 @@ import { config } from '../../config.js';
 import { selectAvailableKey, recordSuccess, markExhausted } from './stormglassKeys.js';
 
 const API_BASE = 'https://api.stormglass.io/v2/weather/point';
-const PARAMS = 'waterTemperature,currentSpeed,currentDirection,waveHeight,wavePeriod,waveDirection,airTemperature,windSpeed,windDirection,gust,pressure';
+const PARAMS = 'waterTemperature,currentSpeed,currentDirection,waveHeight,wavePeriod,waveDirection,swellHeight,swellPeriod,swellDirection,windWaveHeight,windWavePeriod,windWaveDirection,airTemperature,windSpeed,windDirection,gust,pressure';
 
 // ── Key 轮换状态 ──
 // 配额状态(used/402 耗尽)存 Redis,见 stormglassKeys.js;每日美东午夜自动重置。
@@ -166,6 +166,14 @@ function normalizeHour(hour, isEnglish) {
   const wh = numberOrNull(hour?.waveHeight?.sg);
   const wp = numberOrNull(hour?.wavePeriod?.sg);
   const wd = numberOrNull(hour?.waveDirection?.sg);
+  // 涌浪(swell,远处传来的长周期浪)
+  const swh = numberOrNull(hour?.swellHeight?.sg);
+  const swp = numberOrNull(hour?.swellPeriod?.sg);
+  const swd = numberOrNull(hour?.swellDirection?.sg);
+  // 风浪(wind wave,本地风直接吹出来的短周期浪)
+  const wwh = numberOrNull(hour?.windWaveHeight?.sg);
+  const wwp = numberOrNull(hour?.windWavePeriod?.sg);
+  const wwd = numberOrNull(hour?.windWaveDirection?.sg);
   // 气象:气温、风速、风向、阵风、气压
   const at = numberOrNull(hour?.airTemperature?.sg);
   const ws = numberOrNull(hour?.windSpeed?.sg);
@@ -180,6 +188,12 @@ function normalizeHour(hour, isEnglish) {
     waveHeight: isEnglish ? mToFt(wh) : wh,
     wavePeriod: wp,
     waveDirection: wd,
+    swellHeight: isEnglish ? mToFt(swh) : swh,
+    swellPeriod: swp,
+    swellDirection: swd,
+    windWaveHeight: isEnglish ? mToFt(wwh) : wwh,
+    windWavePeriod: wwp,
+    windWaveDirection: wwd,
     airTemperature: isEnglish ? cToF(at) : at,
     windSpeed: isEnglish ? msToKnots(ws) : ws,
     windDirection: wdir,
@@ -196,6 +210,12 @@ function hasMarineData(hour) {
     hour.waveHeight,
     hour.wavePeriod,
     hour.waveDirection,
+    hour.swellHeight,
+    hour.swellPeriod,
+    hour.swellDirection,
+    hour.windWaveHeight,
+    hour.windWavePeriod,
+    hour.windWaveDirection,
     hour.airTemperature,
     hour.windSpeed,
     hour.windDirection,
@@ -206,8 +226,8 @@ function hasMarineData(hour) {
 
 function unitsFor(isEnglish) {
   return isEnglish
-    ? { waterTemperature: 'degF', currentSpeed: 'knots', currentDirection: 'deg', waveHeight: 'ft', wavePeriod: 's', waveDirection: 'deg', airTemperature: 'degF', windSpeed: 'knots', windDirection: 'deg', windGust: 'knots', pressure: 'hPa' }
-    : { waterTemperature: 'degC', currentSpeed: 'm/s', currentDirection: 'deg', waveHeight: 'm', wavePeriod: 's', waveDirection: 'deg', airTemperature: 'degC', windSpeed: 'm/s', windDirection: 'deg', windGust: 'm/s', pressure: 'hPa' };
+    ? { waterTemperature: 'degF', currentSpeed: 'knots', currentDirection: 'deg', waveHeight: 'ft', wavePeriod: 's', waveDirection: 'deg', swellHeight: 'ft', swellPeriod: 's', swellDirection: 'deg', windWaveHeight: 'ft', windWavePeriod: 's', windWaveDirection: 'deg', airTemperature: 'degF', windSpeed: 'knots', windDirection: 'deg', windGust: 'knots', pressure: 'hPa' }
+    : { waterTemperature: 'degC', currentSpeed: 'm/s', currentDirection: 'deg', waveHeight: 'm', wavePeriod: 's', waveDirection: 'deg', swellHeight: 'm', swellPeriod: 's', swellDirection: 'deg', windWaveHeight: 'm', windWavePeriod: 's', windWaveDirection: 'deg', airTemperature: 'degC', windSpeed: 'm/s', windDirection: 'deg', windGust: 'm/s', pressure: 'hPa' };
 }
 
 /**

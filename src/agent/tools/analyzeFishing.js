@@ -123,6 +123,32 @@ export function computeHourlyBlocks(hourly) {
       ? `${fmtRange(Math.min(...waves), Math.max(...waves), 1)} ft (${fmtRange(ftToM(Math.min(...waves)), ftToM(Math.max(...waves)), 1)} m)${waveCardinal ? ' | ' + waveCardinal : ''}`
       : null;
     const wavePeriod = periods.length ? `${fmtRange(Math.min(...periods), Math.max(...periods))} s` : null;
+    // 涌浪(远处长周期浪):高度 + 周期 + 圆周平均方向
+    const swellHeights = es.map((e) => e.swellHeight).filter((v) => v != null);
+    const swellPeriods = es.map((e) => e.swellPeriod).filter((v) => v != null);
+    const swellDirs = es
+      .map((e) => e.swellDirection)
+      .filter((value) => value != null && value !== '')
+      .map(Number)
+      .filter(Number.isFinite);
+    const swellCardinal = degToCardinal(circularMeanDegrees(swellDirs));
+    const swellHeight = swellHeights.length
+      ? `${fmtRange(Math.min(...swellHeights), Math.max(...swellHeights), 1)} ft (${fmtRange(ftToM(Math.min(...swellHeights)), ftToM(Math.max(...swellHeights)), 1)} m)${swellCardinal ? ' | ' + swellCardinal : ''}`
+      : null;
+    const swellPeriod = swellPeriods.length ? `${fmtRange(Math.min(...swellPeriods), Math.max(...swellPeriods))} s` : null;
+    // 风浪(本地风短周期浪):高度 + 周期 + 圆周平均方向
+    const windWaveHeights = es.map((e) => e.windWaveHeight).filter((v) => v != null);
+    const windWavePeriods = es.map((e) => e.windWavePeriod).filter((v) => v != null);
+    const windWaveDirs = es
+      .map((e) => e.windWaveDirection)
+      .filter((value) => value != null && value !== '')
+      .map(Number)
+      .filter(Number.isFinite);
+    const windWaveCardinal = degToCardinal(circularMeanDegrees(windWaveDirs));
+    const windWaveHeight = windWaveHeights.length
+      ? `${fmtRange(Math.min(...windWaveHeights), Math.max(...windWaveHeights), 1)} ft (${fmtRange(ftToM(Math.min(...windWaveHeights)), ftToM(Math.max(...windWaveHeights)), 1)} m)${windWaveCardinal ? ' | ' + windWaveCardinal : ''}`
+      : null;
+    const windWavePeriod = windWavePeriods.length ? `${fmtRange(Math.min(...windWavePeriods), Math.max(...windWavePeriods))} s` : null;
     // 该时段内的最大降水/雷暴概率(同一批 entries,天然按日期隔离)
     const precipProb = Math.max(0, ...es.map((e) => e.precipitationProbability ?? 0));
     const thunderProb = Math.max(0, ...es.map((e) => e.thunderstormProbability ?? 0));
@@ -139,7 +165,7 @@ export function computeHourlyBlocks(hourly) {
     const tidalCurrent = cSpeeds.length
       ? `${fmtRange(Math.min(...cSpeeds), Math.max(...cSpeeds), 2)} kt (${fmtRange(ktToMph(Math.min(...cSpeeds)), ktToMph(Math.max(...cSpeeds)))} mph)${meanCurrentDirection != null ? ` / ${meanCurrentDirection}°` : ''}`
       : null;
-    return { range, wind, airTemp, weather, waveHeight, wavePeriod, precipProb, thunderProb, waterTemp, tidalCurrent };
+    return { range, wind, airTemp, weather, waveHeight, wavePeriod, swellHeight, swellPeriod, windWaveHeight, windWavePeriod, precipProb, thunderProb, waterTemp, tidalCurrent };
   });
 }
 
@@ -149,12 +175,14 @@ const L = {
     currentTime: '当前时间', sunrise: '日出 / 日落', tides: '潮汐',
     waterTemp: '水温', tidalCurrent: '潮流', wind: '风速', airTemp: '气温', weather: '天气',
     alerts: '⚠️⚠️⚠️警报⚠️⚠️⚠️', wave: '浪高/浪周期', waveHeight: '浪高', wavePeriod: '浪周期',
+    swell: '涌浪', windWave: '风浪',
     noData: '无数据', noAlerts: '无活动警报', nextHigh: '下一次高潮', nextLow: '下一次低潮',
   },
   en: {
     currentTime: 'Current Time', sunrise: 'Sunrise / Sunset', tides: 'Tides',
     waterTemp: 'Water Temp', tidalCurrent: 'Tidal Current', wind: 'Wind Speed', airTemp: 'Air Temp', weather: 'Weather',
     alerts: '⚠️⚠️⚠️Alerts⚠️⚠️⚠️', wave: 'Wave Height/Period', waveHeight: 'Wave Height', wavePeriod: 'Wave Period',
+    swell: 'Swell', windWave: 'Wind Wave',
     noData: 'No data', noAlerts: 'No active alerts', nextHigh: 'Next High', nextLow: 'Next Low',
   },
 };
@@ -273,6 +301,15 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh', boatVerdicts
     const wh = cw.waveHeight != null ? `${cw.waveHeight} ft (${ftToM(cw.waveHeight)} m)${waveDir ? ' ' + waveDir : ''}` : nd;
     const wp = cw.wavePeriod != null ? `${cw.wavePeriod} s` : nd;
     lines.push(`${l.wave}: ${wh} | ${wp}`);
+    // 涌浪(长周期)/ 风浪(短周期):拆分显示,帮助判断小船适航性
+    if (cw.swellHeight != null) {
+      const swDir = cw.swellDirection != null ? degToCardinal(cw.swellDirection) : '';
+      lines.push(`${l.swell}: ${cw.swellHeight} ft (${ftToM(cw.swellHeight)} m)${swDir ? ' ' + swDir : ''}${cw.swellPeriod != null ? ` | ${cw.swellPeriod} s` : ''}`);
+    }
+    if (cw.windWaveHeight != null) {
+      const wwDir = cw.windWaveDirection != null ? degToCardinal(cw.windWaveDirection) : '';
+      lines.push(`${l.windWave}: ${cw.windWaveHeight} ft (${ftToM(cw.windWaveHeight)} m)${wwDir ? ' ' + wwDir : ''}${cw.windWavePeriod != null ? ` | ${cw.windWavePeriod} s` : ''}`);
+    }
     // 出海评级(current:key='Current')
     const curBoat = boatVerdicts?.get('Current');
     if (curBoat) lines.push(`🚤 ${curBoat}`);
@@ -308,12 +345,19 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh', boatVerdicts
         const cardinal = m ? ` ${degToCardinal(Number(m[1]))}` : '';
         lines.push(`${l.tidalCurrent}    | ${b.tidalCurrent}${cardinal}`);
       }
-      // 浪高 / 浪周期 分两行
+      // 浪高 / 浪周期 分两行(合成总浪)
       if (b.waveHeight) {
         lines.push(`${l.waveHeight}    | ${b.waveHeight}`);
       }
       if (b.wavePeriod) {
         lines.push(`${l.wavePeriod} | ${b.wavePeriod}`);
+      }
+      // 涌浪(长周期)/ 风浪(短周期):拆分显示,帮助判断小船适航性
+      if (b.swellHeight) {
+        lines.push(`${l.swell}    | ${b.swellHeight}${b.swellPeriod ? ` / ${b.swellPeriod}` : ''}`);
+      }
+      if (b.windWaveHeight) {
+        lines.push(`${l.windWave}    | ${b.windWaveHeight}${b.windWavePeriod ? ` / ${b.windWavePeriod}` : ''}`);
       }
       // 出海评级(按时段 range 匹配,插在浪周期后)
       const boat = boatVerdicts?.get(b.range);
@@ -453,6 +497,15 @@ Consider:
 
 Wave height and wave period must be evaluated together.
 
+The JSON may separate total wave into two components:
+* swell (swellHeight/swellPeriod/swellDirection) = long-period waves arriving from distant weather.
+* wind wave (windWaveHeight/windWavePeriod/windWaveDirection) = short-period chop generated by local wind.
+
+When these components are present, weight them appropriately for this small inflatable catamaran:
+* Short-period wind waves (steep local chop) are the most dangerous for this boat, even when the height looks small. Treat a short-period wind wave as a strong downgrade factor.
+* Long-period swell of similar height is generally more manageable than short-period wind wave, but a large swell can still be a hazard, especially where it stacks with wind wave or current.
+* If the components are missing or null, fall back to the combined waveHeight/wavePeriod.
+
 Short-period waves are especially important for this small inflatable boat. Small wave height does NOT automatically mean good conditions when the wave period is very short.
 
 Low current does NOT automatically mean conditions are suitable.
@@ -587,6 +640,12 @@ export function parseBoatAnalysis(text) {
 
 
 // ============================================================================
+// 开关:鱼情 AI 分析。false = 暂停鱼情分析,只保留出海分析(数据摘要照常渲染)。
+// 恢复:改回 true 即可,requestFishingAnalysis/FISHING_PROMPT 等相关代码均保留未删。
+// ============================================================================
+const ENABLE_FISHING = false;
+
+// ============================================================================
 // Tool 定义 + execute
 // ============================================================================
 export default {
@@ -624,25 +683,29 @@ export default {
     const hourlyBlocks = predict ? computeHourlyBlocks(conditions.predictTideAndWeather?.hourly) : null;
     const lang = context.lang || 'zh';
 
-    // 两次 AI 并发:鱼情分析 + 出海适宜度(各自禁用重试,失败不影响另一个,也不重复消耗数据源)
+    // AI 分析:出海适宜度(禁用重试,失败不影响数据摘要)。
+    // 鱼情分析由 ENABLE_FISHING 开关控制;关闭时不发起该请求,只保留代码。
     const payload = { ...conditions, targetSpecies: TARGET_SPECIES, primaryTargetSpecies: PRIMARY_TARGET_SPECIES };
     const boatBlocks = predict ? (hourlyBlocks || []).map((b) => b.range) : null; // 时段 range 列表,供 AI 按块输出
 
     const [fishRes, boatRes] = await Promise.allSettled([
-      requestFishingAnalysis(payload, lang),
+      ENABLE_FISHING ? requestFishingAnalysis(payload, lang) : Promise.resolve(null),
       requestBoatAnalysis(payload, boatBlocks, lang),
     ]);
 
-    let analysis;
-    if (fishRes.status === 'fulfilled') {
-      analysis = fishRes.value;
-    } else {
-      const message = fishRes.reason instanceof Error ? fishRes.reason.message : String(fishRes.reason);
-      conditions.errors = Array.isArray(conditions.errors) ? conditions.errors : [];
-      conditions.errors.push({ source: 'OpenAI', message: `fishing: ${message}`.slice(0, 500) });
-      analysis = lang === 'en'
-        ? 'Species ratings are temporarily unavailable; the conditions above are still current.'
-        : '鱼种评级暂时不可用；上面的实时条件仍然有效。';
+    // 鱼情分析:仅在开关开启时拼接;关闭时 analysis 留空,summary 只含数据摘要
+    let analysis = null;
+    if (ENABLE_FISHING) {
+      if (fishRes.status === 'fulfilled') {
+        analysis = fishRes.value;
+      } else {
+        const message = fishRes.reason instanceof Error ? fishRes.reason.message : String(fishRes.reason);
+        conditions.errors = Array.isArray(conditions.errors) ? conditions.errors : [];
+        conditions.errors.push({ source: 'OpenAI', message: `fishing: ${message}`.slice(0, 500) });
+        analysis = lang === 'en'
+          ? 'Species ratings are temporarily unavailable; the conditions above are still current.'
+          : '鱼种评级暂时不可用；上面的实时条件仍然有效。';
+      }
     }
 
     // 出海评级:解析成 Map(range/'Current' → 文本),插到摘要每个时段;失败则不显示评级
@@ -658,8 +721,8 @@ export default {
     // 代码渲染固定字段摘要(确定性,不过 AI);船只评级已按时段插入
     const dataSummary = buildSummary(conditions, hourlyBlocks, lang, boatVerdicts);
 
-    // 拼接:数据摘要(含出海评级) + AI 鱼情分析 = 聊天正文
-    const summary = `${dataSummary}\n\n${analysis}`;
+    // 拼接:数据摘要(含出海评级) + AI 鱼情分析(开关关闭时省略) = 聊天正文
+    const summary = analysis ? `${dataSummary}\n\n${analysis}` : dataSummary;
 
     return { summary, conditions };
   },

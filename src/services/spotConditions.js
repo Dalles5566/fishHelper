@@ -208,10 +208,18 @@ function buildCurrent(worldTides, nws, stormglass, tz, unitSystem) {
     precipitationProbability: n?.precipitationProbability ?? null,
     thunderstormProbability: n?.thunderstormProbability ?? null,
 
-    // ── 浪(仅 stormglass,无兜底)──
+    // ── 浪(仅 stormglass,无兜底)。waveHeight 为合成总浪 = 涌浪 + 风浪 ──
     waveHeight: sg?.waveHeight ?? null,
     wavePeriod: sg?.wavePeriod ?? null,
     waveDirection: sg?.waveDirection ?? null,
+
+    // ── 涌浪(远处长周期浪)/ 风浪(本地风短周期浪),仅 stormglass ──
+    swellHeight: sg?.swellHeight ?? null,
+    swellPeriod: sg?.swellPeriod ?? null,
+    swellDirection: sg?.swellDirection ?? null,
+    windWaveHeight: sg?.windWaveHeight ?? null,
+    windWavePeriod: sg?.windWavePeriod ?? null,
+    windWaveDirection: sg?.windWaveDirection ?? null,
 
     // ── 潮流(仅 stormglass,无兜底)──
     tidalCurrentSpeed: sg?.currentSpeed ?? null,
@@ -223,8 +231,8 @@ function buildCurrent(worldTides, nws, stormglass, tz, unitSystem) {
     // 单位口径(合并后统一)
     units:
       unitSystem === 'metric'
-        ? { waterLevel: 'm', temp: 'degC', airPressure: 'hPa', windSpeed: 'm/s', waveHeight: 'm', wavePeriod: 's', direction: 'deg', currentSpeed: 'm/s' }
-        : { waterLevel: 'ft', temp: 'degF', airPressure: 'hPa', windSpeed: 'knots', waveHeight: 'ft', wavePeriod: 's', direction: 'deg', currentSpeed: 'knots' },
+        ? { waterLevel: 'm', temp: 'degC', airPressure: 'hPa', windSpeed: 'm/s', waveHeight: 'm', wavePeriod: 's', swellHeight: 'm', swellPeriod: 's', windWaveHeight: 'm', windWavePeriod: 's', direction: 'deg', currentSpeed: 'm/s' }
+        : { waterLevel: 'ft', temp: 'degF', airPressure: 'hPa', windSpeed: 'knots', waveHeight: 'ft', wavePeriod: 's', swellHeight: 'ft', swellPeriod: 's', windWaveHeight: 'ft', windWavePeriod: 's', direction: 'deg', currentSpeed: 'knots' },
   };
 }
 
@@ -303,10 +311,17 @@ export function buildPredict(worldTides, nws, stormglass, tz, unitSystem, filter
         tidalCurrentDirection: sg.currentDirection ?? null,
         // ── 水温(stormglass)──
         waterTemperature: sg.waterTemperature ?? null,
-        // ── 浪(仅 stormglass,无兜底)──
+        // ── 浪(仅 stormglass,无兜底)。waveHeight 为合成总浪 = 涌浪 + 风浪 ──
         waveHeight: sg.waveHeight ?? null,
         wavePeriod: sg.wavePeriod ?? null,
         waveDirection: sg.waveDirection ?? null,
+        // ── 涌浪(远处长周期浪)/ 风浪(本地风短周期浪),仅 stormglass ──
+        swellHeight: sg.swellHeight ?? null,
+        swellPeriod: sg.swellPeriod ?? null,
+        swellDirection: sg.swellDirection ?? null,
+        windWaveHeight: sg.windWaveHeight ?? null,
+        windWavePeriod: sg.windWavePeriod ?? null,
+        windWaveDirection: sg.windWaveDirection ?? null,
       };
     })
     .filter((entry) => !filterDate || entry.time?.slice(0, 10) === filterDate);
@@ -318,8 +333,8 @@ export function buildPredict(worldTides, nws, stormglass, tz, unitSystem, filter
     alerts: nws?.alerts || [],
     units:
       unitSystem === 'metric'
-        ? { waterLevel: 'm', tidalCurrentSpeed: 'm/s', waterTemperature: 'degC', temp: 'degC', airPressure: 'hPa', windSpeed: 'm/s', waveHeight: 'm', wavePeriod: 's', direction: 'deg' }
-        : { waterLevel: 'ft', tidalCurrentSpeed: 'knots', waterTemperature: 'degF', temp: 'degF', airPressure: 'hPa', windSpeed: 'knots', waveHeight: 'ft', wavePeriod: 's', direction: 'deg' },
+        ? { waterLevel: 'm', tidalCurrentSpeed: 'm/s', waterTemperature: 'degC', temp: 'degC', airPressure: 'hPa', windSpeed: 'm/s', waveHeight: 'm', wavePeriod: 's', swellHeight: 'm', swellPeriod: 's', windWaveHeight: 'm', windWavePeriod: 's', direction: 'deg' }
+        : { waterLevel: 'ft', tidalCurrentSpeed: 'knots', waterTemperature: 'degF', temp: 'degF', airPressure: 'hPa', windSpeed: 'knots', waveHeight: 'ft', wavePeriod: 's', swellHeight: 'ft', swellPeriod: 's', windWaveHeight: 'ft', windWavePeriod: 's', direction: 'deg' },
   };
 }
 
