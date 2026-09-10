@@ -388,7 +388,7 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh', boatVerdicts
     const wt = cw.waterTemp;
     // 顺序: 气温 → 天气 → 风速 → 水温 → 浪高 → 浪周期
     lines.push(`${l.airTemp}: ${cw.airTemp != null ? fmtTemp(cw.airTemp) : nd}`);
-    lines.push(`${l.weather}: ${cw.shortForecast || nd}${cw.precipitationProbability || cw.thunderstormProbability ? `, Precip ${cw.precipitationProbability ?? 0}%, Thunder ${cw.thunderstormProbability ?? 0}%` : ''}`);
+    lines.push(`${l.weather}: ${cw.shortForecast || nd}${cw.precipitationProbability || cw.thunderstormProbability ? `, 🌧️ ${cw.precipitationProbability ?? 0}%,  ⚡${cw.thunderstormProbability ?? 0}%` : ''}`);
     // 先按显示精度取整(潮流 2 位,其余 1 位),再用同一个值算档位 ——
     // 显示的数字、它的颜色、"总"的计数三者必须同源,否则会出现"显示 2 s 却标 🟠"的矛盾。
     const v = {
