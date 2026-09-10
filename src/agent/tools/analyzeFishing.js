@@ -454,14 +454,15 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh', boatVerdicts
         || b.waveHeight || b.wavePeriod || b.swellHeight || b.windWaveHeight;
       if (!hasData) continue;
       // 时间段头
+      lines.push(`■■■■■■■■■■■■■■■■■■■■■■■■`);
       lines.push(`■■■■■■■■${b.range}■■■■■■■■`);
       // 气温
       if (b.airTemp) {
-        lines.push(`              🌡️🌡️${l.airTemp}: ${b.airTemp}🌡️🌡️`);
+        lines.push(`          🌡️🌡️${l.airTemp}: ${b.airTemp}🌡️🌡️`);
       }
       // 水温
       if (b.waterTemp) {
-        lines.push(`              💧🌡️${l.waterTemp}: ${b.waterTemp}💧🌡️`);
+        lines.push(`        💧🌡️${l.waterTemp}: ${b.waterTemp}💧🌡️`);
       }
       // 天气(描述一行,降雨/雷暴概率另起一行)
       if (b.weather) {
