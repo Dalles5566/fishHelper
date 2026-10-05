@@ -121,6 +121,9 @@ export function computeHourlyBlocks(hourly) {
     const airTemp = temps.length
       ? `${fmtRange(Math.min(...temps), Math.max(...temps))}°F (${fmtRange(fToC(Math.min(...temps)), fToC(Math.max(...temps)))}°C)`
       : null;
+    // 气压(Stormglass,hPa;不分单位制)。不参与适航性档位,仅展示。
+    const pressures = es.map((e) => e.airPressure).filter((v) => v != null);
+    const airPressure = pressures.length ? `${fmtRange(Math.min(...pressures), Math.max(...pressures), 1)} hPa` : null;
     const waveDirs = es
       .map((e) => e.waveDirection)
       .filter((value) => value != null && value !== '')
@@ -179,13 +182,13 @@ export function computeHourlyBlocks(hourly) {
     const tidalCurrentLv = cSpeeds.length ? currentLevel(roundTo(Math.max(...cSpeeds), 2)) : null;
     // 方位词在这里一次拼好(此前是显示层用正则从字符串里反解 "/ 145°",格式一变方位就会静默丢失)
     const currentDirStr = meanCurrentDirection != null
-      ? ` / ${meanCurrentDirection}° ${degToCardinal(meanCurrentDirection)}`
+      ? ` | ${meanCurrentDirection}° ${degToCardinal(meanCurrentDirection)}`
       : '';
     const tidalCurrent = cSpeeds.length
       ? `${fmtRange(Math.min(...cSpeeds), Math.max(...cSpeeds), 2)} kt (${fmtRange(ktToMph(Math.min(...cSpeeds)), ktToMph(Math.max(...cSpeeds)))} mph)${levelEmoji(tidalCurrentLv)}${currentDirStr}`
       : null;
     return {
-      range, wind, airTemp, weather, waveHeight, wavePeriod, swellHeight, swellPeriod, windWaveHeight, windWavePeriod,
+      range, wind, airTemp, airPressure, weather, waveHeight, wavePeriod, swellHeight, swellPeriod, windWaveHeight, windWavePeriod,
       precipProb, thunderProb, waterTemp, tidalCurrent,
       // 适航性档位枚举(供 tallyLevels 计数,与显示的 emoji 同源)
       levels: { windLv, tidalCurrentLv, waveLv, wavePeriodLv, swellLv, swellPeriodLv, windWaveLv, windWavePeriodLv },
@@ -197,14 +200,14 @@ export function computeHourlyBlocks(hourly) {
 const L = {
   zh: {
     currentTime: '当前时间', predictDate: '预测日期', sunrise: '日出 / 日落', tides: '潮汐',
-    waterTemp: '水温', tidalCurrent: '潮流', wind: '风速', airTemp: '气温', weather: '天气',
+    waterTemp: '水温', tidalCurrent: '潮流', wind: '风速', airTemp: '气温', airPressure: '气压', weather: '天气',
     alerts: '⚠️⚠️⚠️警报⚠️⚠️⚠️', wave: '浪高/浪周期', waveHeight: '浪高',
     swell: '涌浪', windWave: '风浪', total: '总',
     noData: '无数据', noAlerts: '无活动警报', nextHigh: '下一次高潮', nextLow: '下一次低潮',
   },
   en: {
     currentTime: 'Current Time', predictDate: 'Forecast Date', sunrise: 'Sunrise / Sunset', tides: 'Tides',
-    waterTemp: 'Water Temp', tidalCurrent: 'Tidal Current', wind: 'Wind Speed', airTemp: 'Air Temp', weather: 'Weather',
+    waterTemp: 'Water Temp', tidalCurrent: 'Tidal Current', wind: 'Wind Speed', airTemp: 'Air Temp', airPressure: 'Pressure', weather: 'Weather',
     alerts: '⚠️⚠️⚠️Alerts⚠️⚠️⚠️', wave: 'Wave Height/Period', waveHeight: 'Wave Height',
     swell: 'Swell', windWave: 'Wind Wave', total: 'Total',
     noData: 'No data', noAlerts: 'No active alerts', nextHigh: 'Next High', nextLow: 'Next Low',
@@ -386,8 +389,12 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh', boatVerdicts
     const cw = conditions.currentTideAndWeather || {};
     const wind = cw.wind || {};
     const wt = cw.waterTemp;
-    // 顺序: 气温 → 天气 → 风速 → 水温 → 浪高 → 浪周期
+    // 顺序: 气温 → 气压 → 天气 → 风速 → 水温 → 浪高 → 浪周期
     lines.push(`${l.airTemp}: ${cw.airTemp != null ? fmtTemp(cw.airTemp) : nd}`);
+    // 气压(仅展示,不参与适航性档位计数);current 只有当前小时,故为单值
+    if (cw.airPressure != null) {
+      lines.push(`${l.airPressure}: ${roundTo(cw.airPressure, 1)} hPa`);
+    }
     lines.push(`${l.weather}: ${cw.shortForecast || nd}${cw.precipitationProbability || cw.thunderstormProbability ? `, 🌧️ ${cw.precipitationProbability ?? 0}%,  ⚡${cw.thunderstormProbability ?? 0}%` : ''}`);
     // 先按显示精度取整(潮流 2 位,其余 1 位),再用同一个值算档位 ——
     // 显示的数字、它的颜色、"总"的计数三者必须同源,否则会出现"显示 2 s 却标 🟠"的矛盾。
@@ -459,6 +466,10 @@ export function buildSummary(conditions, hourlyBlocks, lang = 'zh', boatVerdicts
       // 气温
       if (b.airTemp) {
         lines.push(`          🌡️🌡️${l.airTemp}: ${b.airTemp}🌡️🌡️`);
+      }
+      // 气压(仅展示,不参与适航性档位计数)
+      if (b.airPressure) {
+        lines.push(`           🧭${l.airPressure}: ${b.airPressure}🧭`);
       }
       // 水温
       if (b.waterTemp) {
